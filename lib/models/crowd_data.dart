@@ -22,18 +22,22 @@ class CrowdData {
   });
 
   factory CrowdData.fromJson(Map<String, dynamic> json) {
+    // Support both camelCase (API) and snake_case (legacy) field names
     return CrowdData(
-      locationId: json['location_id'] ?? '',
-      locationName: json['location_name'] ?? '',
+      locationId: json['locationId'] ?? json['location_id'] ?? '',
+      locationName: json['locationName'] ?? json['location_name'] ?? '',
       latitude: (json['latitude'] ?? 0).toDouble(),
       longitude: (json['longitude'] ?? 0).toDouble(),
-      crowdCount: json['crowd_count'] ?? 0,
-      crowdDensity: (json['crowd_density'] ?? 0).toDouble(),
+      crowdCount: json['crowdCount'] ?? json['crowd_count'] ?? 0,
+      crowdDensity: (json['crowdDensity'] ?? json['crowd_density'] ?? 0)
+          .toDouble(),
       status: json['status'] ?? 'low',
       timestamp: DateTime.parse(
         json['timestamp'] ?? DateTime.now().toIso8601String(),
       ),
-      predictedNextHour: json['predicted_next_hour']?.toDouble(),
+      predictedNextHour:
+          (json['predictedNextHour'] ?? json['predicted_next_hour'])
+              ?.toDouble(),
     );
   }
 

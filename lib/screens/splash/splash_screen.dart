@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:animated_text_kit/animated_text_kit.dart';
+import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
+import '../../providers/app_state.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -14,6 +16,8 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _controller;
   late Animation<double> _fadeIn;
   late Animation<double> _scaleAnim;
+  bool _isInitializing = true;
+  String _statusMessage = 'Connecting to backend...';
 
   @override
   void initState() {
@@ -35,12 +39,43 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller.forward();
 
-    // Navigate after delay
-    Future.delayed(const Duration(seconds: 4), () {
+    // Initialize app state and then navigate
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    try {
+      // Initialize the AppState (connects to backend, loads locations)
+      final appState = context.read<AppState>();
+      await appState.initialize();
+
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+          _statusMessage = appState.isApiConnected
+              ? 'Backend connected!'
+              : 'Using offline mode';
+        });
+      }
+
+      // Wait a moment to show the status, then navigate
+      await Future.delayed(const Duration(seconds: 2));
+
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/auth');
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+          _statusMessage = 'Using offline mode';
+        });
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/auth');
+        }
+      }
+    }
   }
 
   @override
@@ -135,7 +170,48 @@ class _SplashScreenState extends State<SplashScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(height: 60),
+                  const SizedBox(height: 40),
+
+                  // Connection status
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: Row(
+                      key: ValueKey(_statusMessage),
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (_isInitializing)
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              color: AppColors.neonCyan,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        else
+                          Icon(
+                            _statusMessage.contains('connected')
+                                ? Icons.check_circle
+                                : Icons.cloud_off,
+                            color: _statusMessage.contains('connected')
+                                ? AppColors.neonGreen
+                                : AppColors.textSecondary,
+                            size: 16,
+                          ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _statusMessage,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: _statusMessage.contains('connected')
+                                ? AppColors.neonGreen
+                                : AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
 
                   // Neural network dots animation
                   _buildNeuralDots(),

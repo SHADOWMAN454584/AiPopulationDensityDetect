@@ -6,15 +6,76 @@ import '../constants/app_constants.dart';
 class ApiService {
   static final String _baseUrl = AppConstants.apiBaseUrl;
 
-  static Map<String, dynamic>? _decodeResponse(http.Response response) {
+  // ──────────────────────────────────────────────────────────
+  // Health Check
+  // ──────────────────────────────────────────────────────────
+
+  /// Health check - checks if API is available
+  static Future<bool> isApiAvailable() async {
     try {
-      return jsonDecode(response.body) as Map<String, dynamic>;
-    } catch (_) {
-      return null;
+      final response = await http
+          .get(Uri.parse('$_baseUrl/health'))
+          .timeout(const Duration(seconds: 5));
+      return response.statusCode == 200;
+    } catch (e) {
+      print('API health check failed: $e');
+      return false;
     }
   }
 
-  /// Get crowd prediction from ML model
+  /// Get full health status including service configuration
+  static Future<Map<String, dynamic>?> getHealth() async {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/health'));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Health API Error: $e');
+    }
+    return null;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Locations
+  // ──────────────────────────────────────────────────────────
+
+  /// Get all monitored locations with their baseline crowd profiles
+  static Future<List<Map<String, dynamic>>?> getLocations() async {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/locations'));
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+    } catch (e) {
+      print('Locations API Error: $e');
+    }
+    return null;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Predictions
+  // ──────────────────────────────────────────────────────────
+
+  /// Get bulk predictions for all locations at a specific hour
+  static Future<Map<String, dynamic>?> getBulkPredictions({int? hour}) async {
+    try {
+      final uri = hour != null
+          ? Uri.parse('$_baseUrl/predictions/bulk?hour=$hour')
+          : Uri.parse('$_baseUrl/predictions/bulk');
+
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Bulk Predictions API Error: $e');
+    }
+    return null;
+  }
+
+  /// Get crowd prediction from ML model (legacy endpoint)
   static Future<Map<String, dynamic>?> getPrediction({
     required String locationId,
     required int hour,
@@ -39,33 +100,211 @@ class ApiService {
         return jsonDecode(response.body);
       }
     } catch (e) {
-      // Falls back to dummy data if API unavailable
-      print('API Error: $e');
+      print('Prediction API Error: $e');
     }
     return null;
   }
 
-  /// Get bulk predictions for all locations
-  static Future<List<Map<String, dynamic>>?> getBulkPredictions({
-    required int hour,
-    required int dayOfWeek,
+  // ──────────────────────────────────────────────────────────
+  // Real-time Data
+  // ──────────────────────────────────────────────────────────
+
+  /// Check if real-time Google Maps data collection is available
+  static Future<Map<String, dynamic>?> getRealtimeStatus() async {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/realtime/status'));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Realtime status API Error: $e');
+    }
+    return null;
+  }
+
+  /// Trigger collection of live crowd data from Google Maps API
+  static Future<Map<String, dynamic>?> collectRealtimeData() async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/realtime/collect'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Realtime collect API Error: $e');
+    }
+    return null;
+  }
+
+  /// Get the most recently collected real-time data from cache
+  static Future<Map<String, dynamic>?> getCachedRealtimeData() async {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/realtime/cached'));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Realtime cached API Error: $e');
+    }
+    return null;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Google Maps Integration
+  // ──────────────────────────────────────────────────────────
+
+  /// Get nearby places from Google Maps API
+  static Future<Map<String, dynamic>?> getNearbyPlaces({
+    required double latitude,
+    required double longitude,
+    int radius = 1000,
+    String? placeType,
+  }) async {
+    try {
+      final params = {
+        'latitude': latitude.toString(),
+        'longitude': longitude.toString(),
+        'radius': radius.toString(),
+        if (placeType != null) 'place_type': placeType,
+      };
+
+      final uri = Uri.parse(
+        '$_baseUrl/maps/nearby',
+      ).replace(queryParameters: params);
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Nearby Places API Error: $e');
+    }
+    return null;
+  }
+
+  /// Get directions with traffic between origin and destination
+  static Future<Map<String, dynamic>?> getDirections({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    String mode = 'driving',
   }) async {
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/predict/bulk'),
+        Uri.parse('$_baseUrl/maps/directions'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'hour': hour, 'day_of_week': dayOfWeek}),
+        body: jsonEncode({
+          'origin': {'lat': originLat, 'lng': originLng},
+          'destination': {'lat': destLat, 'lng': destLng},
+          'mode': mode,
+        }),
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return List<Map<String, dynamic>>.from(data['predictions']);
+        return jsonDecode(response.body);
       }
     } catch (e) {
-      print('Bulk API Error: $e');
+      print('Directions API Error: $e');
     }
     return null;
   }
+
+  /// Get details for a specific place
+  static Future<Map<String, dynamic>?> getPlaceDetails(String placeId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/maps/place/$placeId'),
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Place Details API Error: $e');
+    }
+    return null;
+  }
+
+  /// Estimate crowd level based on Google Maps traffic and place popularity
+  static Future<Map<String, dynamic>?> estimateCrowdFromMaps({
+    required String locationId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      final uri = Uri.parse('$_baseUrl/maps/estimate-crowd/$locationId')
+          .replace(
+            queryParameters: {
+              'latitude': latitude.toString(),
+              'longitude': longitude.toString(),
+            },
+          );
+
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Estimate Crowd API Error: $e');
+    }
+    return null;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // AI Insights (OpenAI)
+  // ──────────────────────────────────────────────────────────
+
+  /// Generate AI-powered insights about current crowd conditions
+  static Future<Map<String, dynamic>?> getAiInsights({
+    List<Map<String, dynamic>>? crowdData,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/ai/insights'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({if (crowdData != null) 'crowdData': crowdData}),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('AI Insights API Error: $e');
+    }
+    return null;
+  }
+
+  /// Get AI-powered route and timing recommendations
+  static Future<Map<String, dynamic>?> getAiRouteAdvice({
+    required List<Map<String, dynamic>> crowdData,
+    String? origin,
+    String? destination,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/ai/route-advice'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'crowdData': crowdData,
+          if (origin != null) 'origin': origin,
+          if (destination != null) 'destination': destination,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('AI Route Advice API Error: $e');
+    }
+    return null;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Utility Methods
+  // ──────────────────────────────────────────────────────────
 
   /// Get best travel time recommendation
   static Future<Map<String, dynamic>?> getBestTravelTime({
@@ -86,54 +325,9 @@ class ApiService {
     return null;
   }
 
-  /// Health check
-  static Future<bool> isApiAvailable() async {
-    try {
-      final response = await http.get(Uri.parse('$_baseUrl/health'));
-      return response.statusCode == 200;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  /// Realtime status check
-  static Future<Map<String, dynamic>?> getRealtimeStatus() async {
-    try {
-      final response = await http.get(Uri.parse('$_baseUrl/realtime/status'));
-      if (response.statusCode == 200) {
-        return _decodeResponse(response);
-      }
-    } catch (e) {
-      print('Realtime status API Error: $e');
-    }
-    return null;
-  }
-
-  /// Collect realtime maps signals
-  static Future<Map<String, dynamic>?> collectRealtimeData() async {
-    try {
-      final response = await http.get(Uri.parse('$_baseUrl/realtime/collect'));
-      if (response.statusCode == 200) {
-        return _decodeResponse(response);
-      }
-    } catch (e) {
-      print('Realtime collect API Error: $e');
-    }
-    return null;
-  }
-
-  /// Read cached realtime data as fallback
-  static Future<Map<String, dynamic>?> getCachedRealtimeData() async {
-    try {
-      final response = await http.get(Uri.parse('$_baseUrl/realtime/cached'));
-      if (response.statusCode == 200) {
-        return _decodeResponse(response);
-      }
-    } catch (e) {
-      print('Realtime cached API Error: $e');
-    }
-    return null;
-  }
+  // ──────────────────────────────────────────────────────────
+  // Real-time Training (Admin)
+  // ──────────────────────────────────────────────────────────
 
   /// Realtime-aware single location prediction
   static Future<Map<String, dynamic>?> getRealtimePrediction({
@@ -150,7 +344,7 @@ class ApiService {
       ).replace(queryParameters: query);
       final response = await http.post(uri);
       if (response.statusCode == 200) {
-        return _decodeResponse(response);
+        return jsonDecode(response.body);
       }
     } catch (e) {
       print('Realtime predict API Error: $e');
@@ -174,7 +368,9 @@ class ApiService {
           'weight_maps': weightMaps,
         }),
       );
-      final payload = _decodeResponse(response) ?? <String, dynamic>{};
+      final payload = response.statusCode == 200
+          ? jsonDecode(response.body) as Map<String, dynamic>
+          : <String, dynamic>{};
       payload['status_code'] = response.statusCode;
       return payload;
     } catch (e) {
@@ -190,7 +386,7 @@ class ApiService {
         Uri.parse('$_baseUrl/realtime/train/status'),
       );
       if (response.statusCode == 200) {
-        return _decodeResponse(response);
+        return jsonDecode(response.body);
       }
     } catch (e) {
       print('Realtime train status API Error: $e');
@@ -205,7 +401,7 @@ class ApiService {
         Uri.parse('$_baseUrl/realtime/training-data'),
       );
       if (response.statusCode == 200) {
-        return _decodeResponse(response);
+        return jsonDecode(response.body);
       }
     } catch (e) {
       print('Realtime training-data API Error: $e');

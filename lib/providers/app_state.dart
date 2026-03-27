@@ -5,7 +5,6 @@ import '../models/crowd_alert.dart';
 import '../models/user_model.dart';
 import '../services/dummy_data_service.dart';
 import '../services/api_service.dart';
-import '../constants/app_constants.dart';
 
 class AppState extends ChangeNotifier {
   // User
@@ -25,9 +24,16 @@ class AppState extends ChangeNotifier {
   // API status
   bool _isApiConnected = false;
   bool _googleMapsConfigured = false;
+  bool _openAiConfigured = false;
   bool _isUsingRealtimeData = false;
   String _realtimeDataSource = 'none';
   Timer? _autoRefreshTimer;
+
+  // AI Insights
+  String? _aiInsights;
+
+  // Locations from server
+  List<Map<String, dynamic>> _serverLocations = [];
 
   // Getters
   UserModel? get currentUser => _currentUser;
@@ -38,8 +44,11 @@ class AppState extends ChangeNotifier {
   String? get selectedLocationId => _selectedLocationId;
   bool get isApiConnected => _isApiConnected;
   bool get googleMapsConfigured => _googleMapsConfigured;
+  bool get openAiConfigured => _openAiConfigured;
   bool get isUsingRealtimeData => _isUsingRealtimeData;
   String get realtimeDataSource => _realtimeDataSource;
+  String? get aiInsights => _aiInsights;
+  List<Map<String, dynamic>> get serverLocations => _serverLocations;
 
   CrowdData? get selectedLocationData {
     if (_selectedLocationId == null) return null;
@@ -50,6 +59,34 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  // Initialize app state
+  Future<void> initialize() async {
+    _isApiConnected = await ApiService.isApiAvailable();
+
+    if (_isApiConnected) {
+      // Get health status to check service configuration
+      final health = await ApiService.getHealth();
+      if (health != null) {
+        _googleMapsConfigured = health['googleMapsConfigured'] ?? false;
+        _openAiConfigured = health['openAiConfigured'] ?? false;
+      }
+
+      // Load locations from server
+      final locations = await ApiService.getLocations();
+      if (locations != null) {
+        _serverLocations = locations;
+      }
+
+      // Get initial crowd data
+      await refreshCrowdData();
+    } else {
+      // Fallback to dummy data
+      _crowdDataList = DummyDataService.generateCurrentCrowdData();
+    }
+
+    notifyListeners();
   }
 
   // Auth
@@ -93,67 +130,32 @@ class AppState extends ChangeNotifier {
 
       if (_isApiConnected) {
         final now = DateTime.now();
-        final bulkResult = await ApiService.getBulkPredictions(
+
+        // Get current hour predictions using the new API format
+        final predictionsResponse = await ApiService.getBulkPredictions(
           hour: now.hour,
-          dayOfWeek: now.weekday - 1, // API uses 0=Mon
         );
 
-        if (bulkResult != null && bulkResult.isNotEmpty) {
-          _crowdDataList = bulkResult.map((pred) {
-            final locId = pred['location_id'] as String;
-            final density = (pred['predicted_density'] as num).toDouble();
-            // Lookup lat/lng from constants
-            final locInfo = AppConstants.demoLocations.firstWhere(
-              (l) => l['id'] == locId,
-              orElse: () => AppConstants.demoLocations.first,
-            );
-            return CrowdData(
-              locationId: locId,
-              locationName: pred['location_name'] ?? locInfo['name'],
-              latitude: locInfo['lat'],
-              longitude: locInfo['lng'],
-              crowdCount: (density * 5).round(),
-              crowdDensity: density,
-              status: CrowdData.getStatusFromDensity(density),
-              timestamp: now,
-              predictedNextHour: density, // will be refined below
-            );
-          }).toList();
+        if (predictionsResponse != null &&
+            predictionsResponse['data'] != null) {
+          final List<dynamic> dataList = predictionsResponse['data'];
 
-          // Fetch next-hour predictions
-          final nextHourResult = await ApiService.getBulkPredictions(
-            hour: (now.hour + 1) % 24,
-            dayOfWeek: now.weekday - 1,
-          );
-          if (nextHourResult != null) {
-            for (int i = 0; i < _crowdDataList.length; i++) {
-              final nextPred = nextHourResult.firstWhere(
-                (p) => p['location_id'] == _crowdDataList[i].locationId,
-                orElse: () => <String, dynamic>{},
-              );
-              if (nextPred.isNotEmpty) {
-                _crowdDataList[i] = CrowdData(
-                  locationId: _crowdDataList[i].locationId,
-                  locationName: _crowdDataList[i].locationName,
-                  latitude: _crowdDataList[i].latitude,
-                  longitude: _crowdDataList[i].longitude,
-                  crowdCount: _crowdDataList[i].crowdCount,
-                  crowdDensity: _crowdDataList[i].crowdDensity,
-                  status: _crowdDataList[i].status,
-                  timestamp: _crowdDataList[i].timestamp,
-                  predictedNextHour: (nextPred['predicted_density'] as num)
-                      .toDouble(),
-                );
-              }
-            }
+          if (dataList.isNotEmpty) {
+            _crowdDataList = dataList
+                .map((item) => CrowdData.fromJson(item as Map<String, dynamic>))
+                .toList();
+
+            // Try to overlay real-time data if available
+            await _tryRealtimeOverlay(now);
+
+            // Load AI insights asynchronously (don't block refresh)
+            _loadAiInsightsAsync();
+
+            _isLoading = false;
+            notifyListeners();
+            _checkAlerts();
+            return;
           }
-
-          await _tryRealtimeOverlay(now);
-
-          _isLoading = false;
-          notifyListeners();
-          _checkAlerts();
-          return;
         }
       }
     } catch (e) {
@@ -163,6 +165,7 @@ class AppState extends ChangeNotifier {
     // Fallback to dummy data
     _isApiConnected = false;
     _googleMapsConfigured = false;
+    _openAiConfigured = false;
     _isUsingRealtimeData = false;
     _realtimeDataSource = 'none';
     _crowdDataList = DummyDataService.generateCurrentCrowdData();
@@ -172,67 +175,128 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _tryRealtimeOverlay(DateTime now) async {
-    _googleMapsConfigured = false;
     _isUsingRealtimeData = false;
     _realtimeDataSource = 'none';
 
     final status = await ApiService.getRealtimeStatus();
     if (status == null) return;
 
-    _googleMapsConfigured = status['google_maps_configured'] == true;
-    if (!_googleMapsConfigured) return;
+    final enabled = status['enabled'] == true;
+    _googleMapsConfigured = status['provider'] == 'google_maps';
 
+    if (!enabled || !_googleMapsConfigured) return;
+
+    // Try to collect live data
     Map<String, dynamic>? realtimeResponse =
         await ApiService.collectRealtimeData();
     String source = 'live';
 
     if (realtimeResponse == null) {
+      // Fallback to cached data
       realtimeResponse = await ApiService.getCachedRealtimeData();
       source = 'cached';
     }
 
-    if (realtimeResponse == null) return;
+    if (realtimeResponse == null || realtimeResponse['data'] == null) return;
 
-    final dynamic locationsRaw = realtimeResponse['locations'];
-    if (locationsRaw is! Map) return;
+    // The realtime endpoint returns data in the same format as predictions
+    final List<dynamic> realtimeData = realtimeResponse['data'];
+    if (realtimeData.isEmpty) return;
 
-    final locations = Map<String, dynamic>.from(locationsRaw);
-    bool appliedAny = false;
+    // Replace crowd data with real-time data
+    _crowdDataList = realtimeData
+        .map((item) => CrowdData.fromJson(item as Map<String, dynamic>))
+        .toList();
 
-    for (int i = 0; i < _crowdDataList.length; i++) {
-      final locationId = _crowdDataList[i].locationId;
-      final dynamic rawLoc = locations[locationId];
-      if (rawLoc is! Map) continue;
+    _isUsingRealtimeData = true;
+    _realtimeDataSource = source;
+  }
 
-      final loc = Map<String, dynamic>.from(rawLoc);
-      final intensityRaw = loc['crowd_intensity'];
-      if (intensityRaw is! num) continue;
+  Future<void> _loadAiInsightsAsync() async {
+    if (!_openAiConfigured) return;
 
-      final density = intensityRaw.toDouble().clamp(0.0, 100.0);
-      DateTime timestamp = now;
-      final timestampStr = loc['timestamp'];
-      if (timestampStr is String) {
-        timestamp = DateTime.tryParse(timestampStr) ?? now;
+    try {
+      final crowdJson = _crowdDataList.map((c) => c.toJson()).toList();
+      final insights = await ApiService.getAiInsights(crowdData: crowdJson);
+      if (insights != null && insights['summary'] != null) {
+        _aiInsights = insights['summary'];
+        notifyListeners();
       }
+    } catch (e) {
+      debugPrint('Error loading AI insights: $e');
+    }
+  }
 
-      _crowdDataList[i] = CrowdData(
-        locationId: _crowdDataList[i].locationId,
-        locationName: _crowdDataList[i].locationName,
-        latitude: _crowdDataList[i].latitude,
-        longitude: _crowdDataList[i].longitude,
-        crowdCount: (density * 5).round(),
-        crowdDensity: density,
-        status: CrowdData.getStatusFromDensity(density),
-        timestamp: timestamp,
-        predictedNextHour: _crowdDataList[i].predictedNextHour,
+  /// Load AI insights on demand
+  Future<void> loadAiInsights() async {
+    if (!_isApiConnected) return;
+
+    try {
+      final crowdJson = _crowdDataList.map((c) => c.toJson()).toList();
+      final insights = await ApiService.getAiInsights(crowdData: crowdJson);
+      if (insights != null && insights['summary'] != null) {
+        _aiInsights = insights['summary'];
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error loading AI insights: $e');
+    }
+  }
+
+  /// Get AI route advice
+  Future<Map<String, dynamic>?> getAiRouteAdvice({
+    String? origin,
+    String? destination,
+  }) async {
+    if (!_isApiConnected) return null;
+
+    try {
+      final crowdJson = _crowdDataList.map((c) => c.toJson()).toList();
+      return await ApiService.getAiRouteAdvice(
+        crowdData: crowdJson,
+        origin: origin,
+        destination: destination,
       );
-      appliedAny = true;
+    } catch (e) {
+      debugPrint('Error getting AI route advice: $e');
+      return null;
     }
+  }
 
-    if (appliedAny) {
-      _isUsingRealtimeData = true;
-      _realtimeDataSource = source;
-    }
+  /// Get directions between two points
+  Future<Map<String, dynamic>?> getDirections({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    String mode = 'driving',
+  }) async {
+    if (!_isApiConnected || !_googleMapsConfigured) return null;
+
+    return await ApiService.getDirections(
+      originLat: originLat,
+      originLng: originLng,
+      destLat: destLat,
+      destLng: destLng,
+      mode: mode,
+    );
+  }
+
+  /// Get nearby places
+  Future<Map<String, dynamic>?> getNearbyPlaces({
+    required double latitude,
+    required double longitude,
+    int radius = 1000,
+    String? placeType,
+  }) async {
+    if (!_isApiConnected || !_googleMapsConfigured) return null;
+
+    return await ApiService.getNearbyPlaces(
+      latitude: latitude,
+      longitude: longitude,
+      radius: radius,
+      placeType: placeType,
+    );
   }
 
   void selectLocation(String locationId) {
