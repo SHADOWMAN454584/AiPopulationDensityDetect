@@ -42,6 +42,39 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                       ),
                       const Spacer(),
+                      if (state.googleMapsConfigured)
+                        Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: state.isUsingRealtimeData
+                                ? AppColors.neonCyan.withValues(alpha: 0.18)
+                                : AppColors.surfaceDark,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: state.isUsingRealtimeData
+                                  ? AppColors.neonCyan.withValues(alpha: 0.4)
+                                  : AppColors.textMuted.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Text(
+                            state.isUsingRealtimeData
+                                ? state.realtimeDataSource == 'cached'
+                                      ? 'Maps Cached'
+                                      : 'Live Maps'
+                                : 'Maps Ready',
+                            style: TextStyle(
+                              color: state.isUsingRealtimeData
+                                  ? AppColors.neonCyan
+                                  : AppColors.textMuted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       // Legend
                       _LegendDot(color: AppColors.crowdLow, label: 'Low'),
                       const SizedBox(width: 8),

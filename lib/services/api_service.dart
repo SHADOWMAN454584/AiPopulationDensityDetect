@@ -6,6 +6,14 @@ import '../constants/app_constants.dart';
 class ApiService {
   static final String _baseUrl = AppConstants.apiBaseUrl;
 
+  static Map<String, dynamic>? _decodeResponse(http.Response response) {
+    try {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Get crowd prediction from ML model
   static Future<Map<String, dynamic>?> getPrediction({
     required String locationId,
@@ -86,5 +94,122 @@ class ApiService {
     } catch (e) {
       return false;
     }
+  }
+
+  /// Realtime status check
+  static Future<Map<String, dynamic>?> getRealtimeStatus() async {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/realtime/status'));
+      if (response.statusCode == 200) {
+        return _decodeResponse(response);
+      }
+    } catch (e) {
+      print('Realtime status API Error: $e');
+    }
+    return null;
+  }
+
+  /// Collect realtime maps signals
+  static Future<Map<String, dynamic>?> collectRealtimeData() async {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/realtime/collect'));
+      if (response.statusCode == 200) {
+        return _decodeResponse(response);
+      }
+    } catch (e) {
+      print('Realtime collect API Error: $e');
+    }
+    return null;
+  }
+
+  /// Read cached realtime data as fallback
+  static Future<Map<String, dynamic>?> getCachedRealtimeData() async {
+    try {
+      final response = await http.get(Uri.parse('$_baseUrl/realtime/cached'));
+      if (response.statusCode == 200) {
+        return _decodeResponse(response);
+      }
+    } catch (e) {
+      print('Realtime cached API Error: $e');
+    }
+    return null;
+  }
+
+  /// Realtime-aware single location prediction
+  static Future<Map<String, dynamic>?> getRealtimePrediction({
+    required String locationId,
+    int? hour,
+  }) async {
+    try {
+      final query = <String, String>{'location_id': locationId};
+      if (hour != null) {
+        query['hour'] = hour.toString();
+      }
+      final uri = Uri.parse(
+        '$_baseUrl/realtime/predict',
+      ).replace(queryParameters: query);
+      final response = await http.post(uri);
+      if (response.statusCode == 200) {
+        return _decodeResponse(response);
+      }
+    } catch (e) {
+      print('Realtime predict API Error: $e');
+    }
+    return null;
+  }
+
+  /// Trigger realtime model training from Maps data
+  static Future<Map<String, dynamic>?> startRealtimeTraining({
+    required int hoursToSample,
+    required bool blendWithOriginal,
+    required double weightMaps,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/realtime/train'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'hours_to_sample': hoursToSample,
+          'blend_with_original': blendWithOriginal,
+          'weight_maps': weightMaps,
+        }),
+      );
+      final payload = _decodeResponse(response) ?? <String, dynamic>{};
+      payload['status_code'] = response.statusCode;
+      return payload;
+    } catch (e) {
+      print('Realtime train API Error: $e');
+    }
+    return null;
+  }
+
+  /// Realtime training progress status
+  static Future<Map<String, dynamic>?> getRealtimeTrainingStatus() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/realtime/train/status'),
+      );
+      if (response.statusCode == 200) {
+        return _decodeResponse(response);
+      }
+    } catch (e) {
+      print('Realtime train status API Error: $e');
+    }
+    return null;
+  }
+
+  /// Optional training dataset diagnostics
+  static Future<Map<String, dynamic>?> getRealtimeTrainingData() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/realtime/training-data'),
+      );
+      if (response.statusCode == 200) {
+        return _decodeResponse(response);
+      }
+    } catch (e) {
+      print('Realtime training-data API Error: $e');
+    }
+    return null;
   }
 }

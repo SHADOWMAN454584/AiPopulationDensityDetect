@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../theme/app_theme.dart';
 import '../../services/dummy_data_service.dart';
 import '../../constants/app_constants.dart';
+import '../../services/api_service.dart';
 
 class AdminPanel extends StatefulWidget {
   const AdminPanel({super.key});
@@ -13,6 +16,137 @@ class AdminPanel extends StatefulWidget {
 
 class _AdminPanelState extends State<AdminPanel> {
   String _selectedLocation = 'metro_a';
+  final TextEditingController _hoursController = TextEditingController(
+    text: '12',
+  );
+  bool _blendWithOriginal = true;
+  double _weightMaps = 0.6;
+  String _trainingStatus = 'idle';
+  String? _trainingError;
+  int? _lastRowsUsed;
+  bool _isSubmittingTraining = false;
+  Map<String, dynamic>? _trainingDataInfo;
+  Timer? _trainingStatusTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTrainingStatus();
+    _loadTrainingData();
+  }
+
+  @override
+  void dispose() {
+    _trainingStatusTimer?.cancel();
+    _hoursController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadTrainingStatus() async {
+    final statusResult = await ApiService.getRealtimeTrainingStatus();
+    if (statusResult == null || !mounted) return;
+
+    final training = statusResult['training'];
+    if (training is! Map) return;
+    final trainingMap = Map<String, dynamic>.from(training);
+
+    setState(() {
+      _trainingStatus = (trainingMap['status'] ?? 'idle').toString();
+      _trainingError = trainingMap['last_error']?.toString();
+      final rows = trainingMap['last_rows_used'];
+      _lastRowsUsed = rows is num ? rows.toInt() : null;
+    });
+
+    if (_trainingStatus == 'running') {
+      _ensureStatusPolling();
+    } else {
+      _trainingStatusTimer?.cancel();
+      _trainingStatusTimer = null;
+    }
+  }
+
+  Future<void> _loadTrainingData() async {
+    final data = await ApiService.getRealtimeTrainingData();
+    if (data == null || !mounted) return;
+    setState(() {
+      _trainingDataInfo = data;
+    });
+  }
+
+  void _ensureStatusPolling() {
+    if (_trainingStatusTimer != null) return;
+    _trainingStatusTimer = Timer.periodic(const Duration(seconds: 7), (_) {
+      _loadTrainingStatus();
+    });
+  }
+
+  Future<void> _startTraining() async {
+    final parsedHours = int.tryParse(_hoursController.text.trim()) ?? 12;
+    if (parsedHours < 1 || parsedHours > 24) {
+      _showSnack('hours_to_sample must be between 1 and 24');
+      return;
+    }
+    if (_weightMaps < 0 || _weightMaps > 1) {
+      _showSnack('weight_maps must be between 0 and 1');
+      return;
+    }
+
+    setState(() {
+      _isSubmittingTraining = true;
+      _trainingError = null;
+    });
+
+    final result = await ApiService.startRealtimeTraining(
+      hoursToSample: parsedHours,
+      blendWithOriginal: _blendWithOriginal,
+      weightMaps: _weightMaps,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _isSubmittingTraining = false;
+    });
+
+    if (result == null) {
+      _showSnack('Unable to start training right now');
+      return;
+    }
+
+    final statusCode = result['status_code'];
+    if (statusCode == 200) {
+      _showSnack('Training started');
+      _trainingStatus = 'running';
+      _ensureStatusPolling();
+      _loadTrainingStatus();
+      return;
+    }
+    if (statusCode == 409) {
+      _showSnack('Training already in progress');
+      _trainingStatus = 'running';
+      _ensureStatusPolling();
+      _loadTrainingStatus();
+      return;
+    }
+    if (statusCode == 503) {
+      _showSnack('Maps API not configured');
+      return;
+    }
+
+    _showSnack(
+      result['detail']?.toString() ?? 'Training request failed ($statusCode)',
+    );
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColors.surfaceDark,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -99,6 +233,195 @@ class _AdminPanelState extends State<AdminPanel> {
                         if (v != null) setState(() => _selectedLocation = v);
                       },
                     ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Realtime Training Controls
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.cardDark,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: _statusColor(_trainingStatus).withValues(
+                        alpha: 0.35,
+                      ),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Realtime Model Training',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _statusColor(
+                                _trainingStatus,
+                              ).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              _trainingStatus.toUpperCase(),
+                              style: TextStyle(
+                                color: _statusColor(_trainingStatus),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _hoursController,
+                              keyboardType: TextInputType.number,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                              ),
+                              decoration: const InputDecoration(
+                                labelText: 'hours_to_sample (1-24)',
+                                hintText: '12',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                const Expanded(
+                                  child: Text(
+                                    'Blend with original',
+                                    style: TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                Switch(
+                                  value: _blendWithOriginal,
+                                  onChanged: _trainingStatus == 'running'
+                                      ? null
+                                      : (v) {
+                                          setState(() {
+                                            _blendWithOriginal = v;
+                                          });
+                                        },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'weight_maps: ${_weightMaps.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                      Slider(
+                        value: _weightMaps,
+                        min: 0,
+                        max: 1,
+                        divisions: 20,
+                        label: _weightMaps.toStringAsFixed(2),
+                        onChanged: _trainingStatus == 'running'
+                            ? null
+                            : (v) {
+                                setState(() {
+                                  _weightMaps = v;
+                                });
+                              },
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed:
+                                  _trainingStatus == 'running' ||
+                                      _isSubmittingTraining
+                                  ? null
+                                  : _startTraining,
+                              icon: _isSubmittingTraining
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: AppColors.backgroundDark,
+                                      ),
+                                    )
+                                  : const Icon(Icons.play_arrow),
+                              label: Text(
+                                _isSubmittingTraining
+                                    ? 'Starting...'
+                                    : 'Start Training',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          OutlinedButton(
+                            onPressed: () async {
+                              await _loadTrainingStatus();
+                              await _loadTrainingData();
+                            },
+                            child: const Text('Refresh Status'),
+                          ),
+                        ],
+                      ),
+                      if (_lastRowsUsed != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          'last_rows_used: $_lastRowsUsed',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      if (_trainingError != null && _trainingError!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Error: $_trainingError',
+                            style: const TextStyle(
+                              color: AppColors.crowdHigh,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      if (_trainingDataInfo != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'training-data rows: ${_extractTrainingDataRows(_trainingDataInfo!)}',
+                            style: const TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -341,6 +664,32 @@ class _AdminPanelState extends State<AdminPanel> {
         ),
       ),
     );
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'running':
+        return AppColors.neonCyan;
+      case 'completed':
+        return AppColors.neonGreen;
+      case 'failed':
+        return AppColors.crowdHigh;
+      default:
+        return AppColors.textMuted;
+    }
+  }
+
+  String _extractTrainingDataRows(Map<String, dynamic> trainingData) {
+    if (trainingData['total_rows'] != null) {
+      return trainingData['total_rows'].toString();
+    }
+    if (trainingData['rows'] != null) {
+      return trainingData['rows'].toString();
+    }
+    if (trainingData['data_points'] != null) {
+      return trainingData['data_points'].toString();
+    }
+    return 'available';
   }
 }
 

@@ -28,16 +28,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     try {
       final now = DateTime.now();
       List<Map<String, dynamic>> predictions = [];
-      // Fetch predictions for each hour from the API
+      // Prefer realtime-aware prediction for location details, then fall back.
       for (int i = 0; i < 24; i++) {
         final hour = (now.hour + i) % 24;
-        final result = await ApiService.getPrediction(
-          locationId: _selectedLocationId,
-          hour: hour,
-          dayOfWeek: now.weekday - 1,
-          isWeekend: now.weekday >= 6,
-          isHoliday: false,
-        );
+        final result = await ApiService.getRealtimePrediction(
+              locationId: _selectedLocationId,
+              hour: hour,
+            ) ??
+            await ApiService.getPrediction(
+              locationId: _selectedLocationId,
+              hour: hour,
+              dayOfWeek: now.weekday - 1,
+              isWeekend: now.weekday >= 6,
+              isHoliday: false,
+            );
         if (result != null) {
           predictions.add({
             'hour': hour,

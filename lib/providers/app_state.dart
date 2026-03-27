@@ -24,6 +24,9 @@ class AppState extends ChangeNotifier {
 
   // API status
   bool _isApiConnected = false;
+  bool _googleMapsConfigured = false;
+  bool _isUsingRealtimeData = false;
+  String _realtimeDataSource = 'none';
   Timer? _autoRefreshTimer;
 
   // Getters
@@ -34,6 +37,9 @@ class AppState extends ChangeNotifier {
   List<CrowdAlert> get alerts => _alerts;
   String? get selectedLocationId => _selectedLocationId;
   bool get isApiConnected => _isApiConnected;
+  bool get googleMapsConfigured => _googleMapsConfigured;
+  bool get isUsingRealtimeData => _isUsingRealtimeData;
+  String get realtimeDataSource => _realtimeDataSource;
 
   CrowdData? get selectedLocationData {
     if (_selectedLocationId == null) return null;
@@ -142,6 +148,8 @@ class AppState extends ChangeNotifier {
             }
           }
 
+          await _tryRealtimeOverlay(now);
+
           _isLoading = false;
           notifyListeners();
           _checkAlerts();
@@ -154,10 +162,77 @@ class AppState extends ChangeNotifier {
 
     // Fallback to dummy data
     _isApiConnected = false;
+    _googleMapsConfigured = false;
+    _isUsingRealtimeData = false;
+    _realtimeDataSource = 'none';
     _crowdDataList = DummyDataService.generateCurrentCrowdData();
     _isLoading = false;
     notifyListeners();
     _checkAlerts();
+  }
+
+  Future<void> _tryRealtimeOverlay(DateTime now) async {
+    _googleMapsConfigured = false;
+    _isUsingRealtimeData = false;
+    _realtimeDataSource = 'none';
+
+    final status = await ApiService.getRealtimeStatus();
+    if (status == null) return;
+
+    _googleMapsConfigured = status['google_maps_configured'] == true;
+    if (!_googleMapsConfigured) return;
+
+    Map<String, dynamic>? realtimeResponse =
+        await ApiService.collectRealtimeData();
+    String source = 'live';
+
+    if (realtimeResponse == null) {
+      realtimeResponse = await ApiService.getCachedRealtimeData();
+      source = 'cached';
+    }
+
+    if (realtimeResponse == null) return;
+
+    final dynamic locationsRaw = realtimeResponse['locations'];
+    if (locationsRaw is! Map) return;
+
+    final locations = Map<String, dynamic>.from(locationsRaw);
+    bool appliedAny = false;
+
+    for (int i = 0; i < _crowdDataList.length; i++) {
+      final locationId = _crowdDataList[i].locationId;
+      final dynamic rawLoc = locations[locationId];
+      if (rawLoc is! Map) continue;
+
+      final loc = Map<String, dynamic>.from(rawLoc);
+      final intensityRaw = loc['crowd_intensity'];
+      if (intensityRaw is! num) continue;
+
+      final density = intensityRaw.toDouble().clamp(0.0, 100.0);
+      DateTime timestamp = now;
+      final timestampStr = loc['timestamp'];
+      if (timestampStr is String) {
+        timestamp = DateTime.tryParse(timestampStr) ?? now;
+      }
+
+      _crowdDataList[i] = CrowdData(
+        locationId: _crowdDataList[i].locationId,
+        locationName: _crowdDataList[i].locationName,
+        latitude: _crowdDataList[i].latitude,
+        longitude: _crowdDataList[i].longitude,
+        crowdCount: (density * 5).round(),
+        crowdDensity: density,
+        status: CrowdData.getStatusFromDensity(density),
+        timestamp: timestamp,
+        predictedNextHour: _crowdDataList[i].predictedNextHour,
+      );
+      appliedAny = true;
+    }
+
+    if (appliedAny) {
+      _isUsingRealtimeData = true;
+      _realtimeDataSource = source;
+    }
   }
 
   void selectLocation(String locationId) {

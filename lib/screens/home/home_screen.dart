@@ -136,7 +136,7 @@ class HomeScreen extends StatelessWidget {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                state.isApiConnected ? 'Live' : 'Demo',
+                                state.isApiConnected ? 'API' : 'Demo',
                                 style: TextStyle(
                                   color: state.isApiConnected
                                       ? AppColors.neonGreen
@@ -145,6 +145,31 @@ class HomeScreen extends StatelessWidget {
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
+                              if (state.googleMapsConfigured) ...[
+                                const SizedBox(width: 10),
+                                Icon(
+                                  Icons.public,
+                                  color: state.isUsingRealtimeData
+                                      ? AppColors.neonCyan
+                                      : AppColors.textMuted,
+                                  size: 12,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  state.isUsingRealtimeData
+                                      ? state.realtimeDataSource == 'cached'
+                                            ? 'Live Maps (Cached)'
+                                            : 'Live Maps'
+                                      : 'Maps Ready',
+                                  style: TextStyle(
+                                    color: state.isUsingRealtimeData
+                                        ? AppColors.neonCyan
+                                        : AppColors.textMuted,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ],
