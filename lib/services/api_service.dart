@@ -362,23 +362,80 @@ class ApiService {
 
   /// Search for places worldwide using Nominatim OpenStreetMap geocoding.
   /// Returns a list of {display_name, name, lat, lng} maps.
-  static Future<List<Map<String, dynamic>>> searchPlaces(String query) async {
+  static Future<List<Map<String, dynamic>>> searchPlaces(
+    String query, {
+    double? latitude,
+    double? longitude,
+    int limit = 6,
+  }) async {
     if (query.trim().isEmpty) return [];
 
     try {
-      final uri = Uri.parse('https://nominatim.openstreetmap.org/search').replace(
+      final uri = Uri.parse('$_baseUrl/maps/search').replace(
         queryParameters: {
           'q': query,
-          'format': 'json',
-          'limit': '6',
-          'addressdetails': '1',
+          'limit': limit.toString(),
+          if (latitude != null) 'latitude': latitude.toString(),
+          if (longitude != null) 'longitude': longitude.toString(),
         },
       );
 
-      final response = await http.get(uri, headers: {
-        'User-Agent': 'CrowdSenseAI/1.0 (crowdsense.ai)',
-        'Accept': 'application/json',
-      }).timeout(const Duration(seconds: 8));
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final List<dynamic> results = decoded is List
+            ? decoded
+            : (decoded['results'] as List<dynamic>? ??
+                  decoded['places'] as List<dynamic>? ??
+                  decoded['data'] as List<dynamic>? ??
+                  <dynamic>[]);
+
+        return results.map((item) {
+          return <String, dynamic>{
+            'display_name': item['display_name'] ?? '',
+            'name': item['name'] ?? item['display_name'] ?? '',
+            'lat': _toDoubleOrNull(item['lat']) ?? 0.0,
+            'lng':
+                _toDoubleOrNull(item['lng']) ??
+                _toDoubleOrNull(item['lon']) ??
+                0.0,
+            'type': item['type'] ?? '',
+            'class': item['class'] ?? '',
+          };
+        }).toList();
+      }
+    } catch (e) {
+      print('Backend maps search error: $e');
+    }
+
+    return _searchPlacesDirectNominatim(query, limit: limit);
+  }
+
+  static Future<List<Map<String, dynamic>>> _searchPlacesDirectNominatim(
+    String query, {
+    int limit = 6,
+  }) async {
+    try {
+      final uri = Uri.parse('https://nominatim.openstreetmap.org/search')
+          .replace(
+            queryParameters: {
+              'q': query,
+              'format': 'json',
+              'limit': limit.toString(),
+              'addressdetails': '1',
+            },
+          );
+
+      final response = await http
+          .get(
+            uri,
+            headers: {
+              'User-Agent': 'CrowdSenseAI/1.0 (crowdsense.ai)',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
         final List<dynamic> results = jsonDecode(response.body);
@@ -386,15 +443,18 @@ class ApiService {
           return <String, dynamic>{
             'display_name': item['display_name'] ?? '',
             'name': item['name'] ?? item['display_name'] ?? '',
-            'lat': double.tryParse(item['lat']?.toString() ?? '') ?? 0.0,
-            'lng': double.tryParse(item['lon']?.toString() ?? '') ?? 0.0,
+            'lat': _toDoubleOrNull(item['lat']) ?? 0.0,
+            'lng':
+                _toDoubleOrNull(item['lng']) ??
+                _toDoubleOrNull(item['lon']) ??
+                0.0,
             'type': item['type'] ?? '',
             'class': item['class'] ?? '',
           };
         }).toList();
       }
     } catch (e) {
-      print('Nominatim search error: $e');
+      print('Nominatim search fallback error: $e');
     }
     return [];
   }

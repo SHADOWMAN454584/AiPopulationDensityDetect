@@ -36,6 +36,7 @@ class _MapScreenState extends State<MapScreen> {
   Map<String, dynamic>? _searchedCrowdData;
   bool _isLoadingCrowdData = false;
   bool _showSearchResults = false;
+  String? _searchError;
 
   // ── Default fallback (only used if GPS completely unavailable) ─────────────
   static const LatLng _defaultCenter = LatLng(
@@ -75,28 +76,58 @@ class _MapScreenState extends State<MapScreen> {
         _searchResults = [];
         _isSearching = false;
         _showSearchResults = false;
+        _searchError = null;
       });
       return;
     }
 
-    setState(() => _isSearching = true);
+    setState(() {
+      _isSearching = true;
+      _searchError = null;
+    });
 
     _debounceTimer = Timer(const Duration(milliseconds: 500), () {
       _performSearch(query);
     });
   }
 
-  Future<void> _performSearch(String query) async {
+  Future<void> _performSearch(
+    String query, {
+    bool autoSelectFirst = false,
+  }) async {
     if (!mounted) return;
 
-    final results = await ApiService.searchPlaces(query);
+    final results = await ApiService.searchPlaces(
+      query,
+      latitude: _userPosition?.latitude,
+      longitude: _userPosition?.longitude,
+    );
 
     if (!mounted) return;
     setState(() {
       _searchResults = results;
       _isSearching = false;
-      _showSearchResults = results.isNotEmpty;
+      _showSearchResults = !autoSelectFirst && results.isNotEmpty;
+      _searchError = results.isEmpty ? 'No places found for "$query"' : null;
     });
+
+    if (autoSelectFirst && results.isNotEmpty) {
+      await _onPlaceSelected(results.first);
+    }
+  }
+
+  Future<void> _submitSearch(String value) async {
+    final query = value.trim();
+    if (query.isEmpty) return;
+
+    _debounceTimer?.cancel();
+    setState(() {
+      _isSearching = true;
+      _showSearchResults = false;
+      _searchError = null;
+    });
+
+    await _performSearch(query, autoSelectFirst: true);
   }
 
   Future<void> _onPlaceSelected(Map<String, dynamic> place) async {
@@ -110,6 +141,7 @@ class _MapScreenState extends State<MapScreen> {
       _showSearchResults = false;
       _selectedMarker = null;
       _searchController.text = place['name'] ?? '';
+      _searchError = null;
     });
 
     _searchFocusNode.unfocus();
@@ -148,6 +180,7 @@ class _MapScreenState extends State<MapScreen> {
       _searchedCrowdData = null;
       _isLoadingCrowdData = false;
       _showSearchResults = false;
+      _searchError = null;
     });
   }
 
@@ -332,13 +365,15 @@ class _MapScreenState extends State<MapScreen> {
                             CircleLayer(
                               circles: [
                                 ...crowdData.map((data) {
-                                  final color =
-                                      _getHeatColor(data.crowdDensity);
+                                  final color = _getHeatColor(
+                                    data.crowdDensity,
+                                  );
                                   return CircleMarker(
-                                    point:
-                                        LatLng(data.latitude, data.longitude),
-                                    radius:
-                                        30 + (data.crowdDensity / 100) * 30,
+                                    point: LatLng(
+                                      data.latitude,
+                                      data.longitude,
+                                    ),
+                                    radius: 30 + (data.crowdDensity / 100) * 30,
                                     color: color.withValues(alpha: 0.3),
                                     borderColor: color.withValues(alpha: 0.6),
                                     borderStrokeWidth: 2,
@@ -354,8 +389,9 @@ class _MapScreenState extends State<MapScreen> {
                                           .toDouble(),
                                     ),
                                     radius: 50,
-                                    color: AppColors.neonPurple
-                                        .withValues(alpha: 0.15),
+                                    color: AppColors.neonPurple.withValues(
+                                      alpha: 0.15,
+                                    ),
                                     borderColor: AppColors.neonPurple
                                         .withValues(alpha: 0.5),
                                     borderStrokeWidth: 2,
@@ -377,9 +413,7 @@ class _MapScreenState extends State<MapScreen> {
                                     height: 44,
                                     child: GestureDetector(
                                       onTap: () {
-                                        setState(
-                                          () => _selectedMarker = data,
-                                        );
+                                        setState(() => _selectedMarker = data);
                                       },
                                       child: Container(
                                         decoration: BoxDecoration(
@@ -491,8 +525,7 @@ class _MapScreenState extends State<MapScreen> {
                                             ),
                                             boxShadow: [
                                               BoxShadow(
-                                                color:
-                                                    Colors.blue.withValues(
+                                                color: Colors.blue.withValues(
                                                   alpha: 0.6,
                                                 ),
                                                 blurRadius: 8,
@@ -519,21 +552,25 @@ class _MapScreenState extends State<MapScreen> {
                               // Search input
                               Container(
                                 decoration: BoxDecoration(
-                                  color: AppColors.cardDark
-                                      .withValues(alpha: 0.92),
+                                  color: AppColors.cardDark.withValues(
+                                    alpha: 0.92,
+                                  ),
                                   borderRadius: BorderRadius.circular(16),
                                   border: Border.all(
                                     color: _searchFocusNode.hasFocus
-                                        ? AppColors.neonCyan
-                                            .withValues(alpha: 0.6)
-                                        : AppColors.textMuted
-                                            .withValues(alpha: 0.2),
+                                        ? AppColors.neonCyan.withValues(
+                                            alpha: 0.6,
+                                          )
+                                        : AppColors.textMuted.withValues(
+                                            alpha: 0.2,
+                                          ),
                                     width: 1.5,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black
-                                          .withValues(alpha: 0.4),
+                                      color: Colors.black.withValues(
+                                        alpha: 0.4,
+                                      ),
                                       blurRadius: 20,
                                       offset: const Offset(0, 4),
                                     ),
@@ -553,6 +590,8 @@ class _MapScreenState extends State<MapScreen> {
                                       child: TextField(
                                         controller: _searchController,
                                         focusNode: _searchFocusNode,
+                                        textInputAction: TextInputAction.search,
+                                        onSubmitted: _submitSearch,
                                         style: const TextStyle(
                                           color: AppColors.textPrimary,
                                           fontSize: 14,
@@ -603,20 +642,24 @@ class _MapScreenState extends State<MapScreen> {
                                   _searchResults.isNotEmpty)
                                 Container(
                                   margin: const EdgeInsets.only(top: 4),
-                                  constraints:
-                                      const BoxConstraints(maxHeight: 260),
+                                  constraints: const BoxConstraints(
+                                    maxHeight: 260,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: AppColors.cardDark
-                                        .withValues(alpha: 0.96),
+                                    color: AppColors.cardDark.withValues(
+                                      alpha: 0.96,
+                                    ),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
-                                      color: AppColors.neonCyan
-                                          .withValues(alpha: 0.2),
+                                      color: AppColors.neonCyan.withValues(
+                                        alpha: 0.2,
+                                      ),
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.5),
+                                        color: Colors.black.withValues(
+                                          alpha: 0.5,
+                                        ),
                                         blurRadius: 20,
                                         offset: const Offset(0, 8),
                                       ),
@@ -630,17 +673,57 @@ class _MapScreenState extends State<MapScreen> {
                                     itemCount: _searchResults.length,
                                     separatorBuilder: (_, __) => Divider(
                                       height: 1,
-                                      color: AppColors.textMuted
-                                          .withValues(alpha: 0.1),
+                                      color: AppColors.textMuted.withValues(
+                                        alpha: 0.1,
+                                      ),
                                     ),
                                     itemBuilder: (context, index) {
                                       final result = _searchResults[index];
                                       return _SearchResultTile(
                                         result: result,
-                                        onTap: () =>
-                                            _onPlaceSelected(result),
+                                        onTap: () => _onPlaceSelected(result),
                                       );
                                     },
+                                  ),
+                                ),
+
+                              if (!_isSearching && _searchError != null)
+                                Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(top: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.cardDark.withValues(
+                                      alpha: 0.94,
+                                    ),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: AppColors.crowdMedium.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.info_outline,
+                                        color: AppColors.crowdMedium,
+                                        size: 15,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          _searchError!,
+                                          style: const TextStyle(
+                                            color: AppColors.textSecondary,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                             ],
@@ -689,7 +772,8 @@ class _MapScreenState extends State<MapScreen> {
 
                         // ── FAB: locate me ───────────────────────────────────
                         Positioned(
-                          bottom: (_selectedMarker != null ||
+                          bottom:
+                              (_selectedMarker != null ||
                                   _searchedPlace != null)
                               ? 180
                               : 24,
@@ -697,8 +781,7 @@ class _MapScreenState extends State<MapScreen> {
                           child: FloatingActionButton.small(
                             heroTag: 'locate_me',
                             backgroundColor: AppColors.surfaceDark,
-                            onPressed:
-                                _locationLoading ? null : _centreOnUser,
+                            onPressed: _locationLoading ? null : _centreOnUser,
                             tooltip: 'Centre on my location',
                             child: _locationLoading
                                 ? const SizedBox(
@@ -829,10 +912,7 @@ class _SearchResultTile extends StatelessWidget {
             ),
             if (type.isNotEmpty)
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 6,
-                  vertical: 2,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: AppColors.neonCyan.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(6),
@@ -873,23 +953,39 @@ class _SearchedPlaceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = place['name'] ?? 'Unknown';
+    final displayName = place['display_name']?.toString() ?? '';
     final lat = (place['lat'] as num?)?.toDouble() ?? 0;
     final lng = (place['lng'] as num?)?.toDouble() ?? 0;
 
-    // Try to extract crowd density from response
+    // Try to extract crowd density and source info from response
     double? crowdDensity;
     String? crowdStatus;
+    String? crowdSource;
+    int? venuesSampled;
     List<Map<String, dynamic>> nearbyPlaces = [];
+    List<Map<String, dynamic>> venueDetails = [];
 
     if (crowdData != null) {
       // Direct estimation
       crowdDensity =
-          (crowdData!['crowd_density'] ?? crowdData!['crowdDensity'] as num?)
-              ?.toDouble();
+          _toDouble(crowdData!['crowd_density']) ??
+          _toDouble(crowdData!['crowdDensity']);
       crowdStatus = crowdData!['status']?.toString();
+      crowdSource = crowdData!['source']?.toString();
+      venuesSampled = (crowdData!['venues_sampled'] as num?)?.toInt();
+
+      final details = crowdData!['venue_details'];
+      if (details is List && details.isNotEmpty) {
+        venueDetails = details
+            .whereType<Map>()
+            .map((v) => Map<String, dynamic>.from(v))
+            .take(3)
+            .toList();
+      }
 
       // Or from nearby places
-      final places = crowdData!['nearby_locations'] ??
+      final places =
+          crowdData!['nearby_locations'] ??
           crowdData!['places'] ??
           crowdData!['results'];
       if (places is List && places.isNotEmpty) {
@@ -906,14 +1002,9 @@ class _SearchedPlaceCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.cardDark.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.neonPurple.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: AppColors.neonPurple.withValues(alpha: 0.3)),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 20,
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 20),
         ],
       ),
       child: Column(
@@ -973,6 +1064,19 @@ class _SearchedPlaceCard extends StatelessWidget {
               ),
             ],
           ),
+          if (displayName.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                displayName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 11,
+                ),
+              ),
+            ),
           const SizedBox(height: 12),
 
           // Crowd data section
@@ -1005,8 +1109,7 @@ class _SearchedPlaceCard extends StatelessWidget {
                 color: _getDensityColor(crowdDensity).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color:
-                      _getDensityColor(crowdDensity).withValues(alpha: 0.3),
+                  color: _getDensityColor(crowdDensity).withValues(alpha: 0.3),
                 ),
               ),
               child: Row(
@@ -1033,8 +1136,9 @@ class _SearchedPlaceCard extends StatelessWidget {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: _getDensityColor(crowdDensity)
-                            .withValues(alpha: 0.15),
+                        color: _getDensityColor(
+                          crowdDensity,
+                        ).withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
@@ -1065,13 +1169,14 @@ class _SearchedPlaceCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 ...nearbyPlaces.map((p) {
-                  final pName = p['name'] ??
+                  final pName =
+                      p['name'] ??
                       p['location_name'] ??
                       p['place_name'] ??
                       'Unknown';
                   final pDensity =
-                      (p['crowd_density'] ?? p['predicted_density'] as num?)
-                          ?.toDouble();
+                      _toDouble(p['crowd_density']) ??
+                      _toDouble(p['predicted_density']);
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 6),
                     child: Row(
@@ -1110,22 +1215,71 @@ class _SearchedPlaceCard extends StatelessWidget {
                 }),
               ],
             )
+          else if (venueDetails.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Sampled Venues',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...venueDetails.map((v) {
+                  final vName = (v['name'] ?? 'Unknown').toString();
+                  final vDensity = _toDouble(v['density']);
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        if (vDensity != null)
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _getDensityColor(vDensity),
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            vName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        if (vDensity != null)
+                          Text(
+                            '${vDensity.toStringAsFixed(0)}%',
+                            style: TextStyle(
+                              color: _getDensityColor(vDensity),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            )
           else if (crowdData != null)
             // Got response but no specific data
             const Row(
               children: [
-                Icon(
-                  Icons.info_outline,
-                  color: AppColors.textMuted,
-                  size: 16,
-                ),
+                Icon(Icons.info_outline, color: AppColors.textMuted, size: 16),
                 SizedBox(width: 8),
                 Text(
                   'No crowd data available for this area',
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 12),
                 ),
               ],
             )
@@ -1139,11 +1293,7 @@ class _SearchedPlaceCard extends StatelessWidget {
               ),
               child: const Row(
                 children: [
-                  Icon(
-                    Icons.cloud_off,
-                    color: AppColors.crowdMedium,
-                    size: 16,
-                  ),
+                  Icon(Icons.cloud_off, color: AppColors.crowdMedium, size: 16),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1157,15 +1307,73 @@ class _SearchedPlaceCard extends StatelessWidget {
                 ],
               ),
             ),
+
+          if (!isLoading && crowdData != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  if (crowdSource != null && crowdSource.isNotEmpty)
+                    _InfoChip(
+                      label: 'Source: $crowdSource',
+                      color: AppColors.neonCyan,
+                    ),
+                  if (venuesSampled != null)
+                    _InfoChip(
+                      label: 'Venues: $venuesSampled',
+                      color: AppColors.neonPurple,
+                    ),
+                ],
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  double? _toDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    if (value is String) {
+      return double.tryParse(value);
+    }
+    return null;
   }
 
   Color _getDensityColor(double density) {
     if (density < 40) return AppColors.crowdLow;
     if (density < 70) return AppColors.crowdMedium;
     return AppColors.crowdHigh;
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _InfoChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
   }
 }
 
@@ -1219,10 +1427,7 @@ class _MarkerInfoCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: statusColor.withValues(alpha: 0.3)),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
-            blurRadius: 16,
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 16),
         ],
       ),
       child: Row(
