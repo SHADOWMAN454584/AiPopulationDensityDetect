@@ -184,6 +184,54 @@ class ApiService {
     return null;
   }
 
+  /// Get nearby smart-route payload for the Smart Route screen.
+  ///
+  /// The screen expects:
+  /// - radius_km
+  /// - nearby_locations
+  /// - suggestions
+  ///
+  /// Some backends only expose /maps/nearby. In that case, this method
+  /// adapts the payload shape so the UI can still render nearby data and
+  /// gracefully fallback for suggestions.
+  static Future<Map<String, dynamic>?> getNearbySmartRoute({
+    required double latitude,
+    required double longitude,
+    required double radiusKm,
+  }) async {
+    try {
+      final radiusMeters = (radiusKm * 1000).round();
+      final nearbyResponse = await getNearbyPlaces(
+        latitude: latitude,
+        longitude: longitude,
+        radius: radiusMeters,
+      );
+
+      if (nearbyResponse == null) {
+        return null;
+      }
+
+      final nearbyLocations =
+          _extractMapList(nearbyResponse['nearby_locations']).isNotEmpty
+          ? _extractMapList(nearbyResponse['nearby_locations'])
+          : _extractMapList(nearbyResponse['places']).isNotEmpty
+          ? _extractMapList(nearbyResponse['places'])
+          : _extractMapList(nearbyResponse['results']);
+
+      final suggestions = _extractMapList(nearbyResponse['suggestions']);
+
+      return {
+        ...nearbyResponse,
+        'radius_km': _toDoubleOrNull(nearbyResponse['radius_km']) ?? radiusKm,
+        'nearby_locations': nearbyLocations,
+        'suggestions': suggestions,
+      };
+    } catch (e) {
+      print('Nearby Smart Route API Error: $e');
+    }
+    return null;
+  }
+
   /// Get directions with traffic between origin and destination
   static Future<Map<String, dynamic>?> getDirections({
     required double originLat,
@@ -253,7 +301,7 @@ class ApiService {
   }
 
   // ──────────────────────────────────────────────────────────
-  // AI Insights (OpenAI)
+  // AI Insights (Gemini-compatible)
   // ──────────────────────────────────────────────────────────
 
   /// Generate AI-powered insights about current crowd conditions
@@ -294,7 +342,13 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        final data = Map<String, dynamic>.from(jsonDecode(response.body));
+        final advice = (data['advice'] ?? data['summary'] ?? '').toString();
+        if (advice.isNotEmpty) {
+          data['advice'] = advice;
+          data['summary'] = advice;
+        }
+        return data;
       }
     } catch (e) {
       print('AI Route Advice API Error: $e');
@@ -312,9 +366,10 @@ class ApiService {
     required String toLocationId,
   }) async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/best-time?from=$fromLocationId&to=$toLocationId'),
-      );
+      final uri = Uri.parse(
+        '$_baseUrl/best-time',
+      ).replace(queryParameters: {'from': fromLocationId, 'to': toLocationId});
+      final response = await http.get(uri);
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -368,11 +423,11 @@ class ApiService {
           'weight_maps': weightMaps,
         }),
       );
-      final payload = response.statusCode == 200
-          ? jsonDecode(response.body) as Map<String, dynamic>
-          : <String, dynamic>{};
-      payload['status_code'] = response.statusCode;
-      return payload;
+      if (response.statusCode == 200) {
+        final payload = Map<String, dynamic>.from(jsonDecode(response.body));
+        payload['status_code'] ??= response.statusCode;
+        return payload;
+      }
     } catch (e) {
       print('Realtime train API Error: $e');
     }
@@ -386,7 +441,12 @@ class ApiService {
         Uri.parse('$_baseUrl/realtime/train/status'),
       );
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        final data = Map<String, dynamic>.from(jsonDecode(response.body));
+        final training = data['training'];
+        if (training is Map) {
+          return Map<String, dynamic>.from(training);
+        }
+        return data;
       }
     } catch (e) {
       print('Realtime train status API Error: $e');
@@ -405,6 +465,27 @@ class ApiService {
       }
     } catch (e) {
       print('Realtime training-data API Error: $e');
+    }
+    return null;
+  }
+
+  static List<Map<String, dynamic>> _extractMapList(dynamic value) {
+    if (value is! List) {
+      return <Map<String, dynamic>>[];
+    }
+
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  static double? _toDoubleOrNull(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    if (value is String) {
+      return double.tryParse(value);
     }
     return null;
   }

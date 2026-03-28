@@ -5,15 +5,16 @@ class AppConstants {
 
   // FastAPI Backend
   // Local development: 'http://localhost:8000'
-  // Vercel production: 'https://your-app-name.vercel.app'
+  // Render production: 'https://your-app-name.onrender.com'
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:8000',
+    defaultValue: 'https://crowd-backend-5lbs.onrender.com',
   );
 
   // App Info
   static const String appName = 'CrowdSense AI';
   static const String appTagline = 'Predict Before You Step Out';
+  static const double smartRouteRadiusKm = 12.0;
 
   // Dummy Locations for demo
   static const List<Map<String, dynamic>> demoLocations = [

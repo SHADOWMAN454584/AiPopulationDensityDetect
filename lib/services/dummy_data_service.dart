@@ -110,14 +110,19 @@ class DummyDataService {
   /// Suggest alternative route if location is crowded
   static Map<String, dynamic>? suggestAlternative(
     String crowdedLocationId,
-    List<CrowdData> allData,
-  ) {
+    List<CrowdData> allData, {
+    Set<String>? allowedLocationIds,
+  }) {
     final crowdedLocation = allData.firstWhere(
       (d) => d.locationId == crowdedLocationId,
       orElse: () => allData.first,
     );
 
     if (crowdedLocation.crowdDensity < 70) return null;
+    if (allowedLocationIds != null &&
+        !allowedLocationIds.contains(crowdedLocationId)) {
+      return null;
+    }
 
     // Find least crowded alternative of same type
     final locationType = AppConstants.demoLocations.firstWhere(
@@ -129,6 +134,8 @@ class DummyDataService {
             .where(
               (d) =>
                   d.locationId != crowdedLocationId &&
+                  (allowedLocationIds == null ||
+                      allowedLocationIds.contains(d.locationId)) &&
                   AppConstants.demoLocations.any(
                     (l) => l['id'] == d.locationId && l['type'] == locationType,
                   ),
@@ -140,7 +147,9 @@ class DummyDataService {
 
     final alt = alternatives.first;
     return {
+      'original_id': crowdedLocation.locationId,
       'original': crowdedLocation.locationName,
+      'alternative_id': alt.locationId,
       'alternative': alt.locationName,
       'original_density': crowdedLocation.crowdDensity,
       'alternative_density': alt.crowdDensity,

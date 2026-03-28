@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../theme/app_theme.dart';
 import '../../providers/app_state.dart';
 import '../../models/crowd_data.dart';
@@ -17,6 +18,107 @@ class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   CrowdData? _selectedMarker;
 
+  // GPS state
+  LatLng? _userPosition;
+  bool _locationLoading = false;
+  String? _locationError;
+  bool _hasCenteredOnUser = false; // centre only once on first load
+
+  // ── Default fallback (only used if GPS completely unavailable) ─────────────
+  static const LatLng _defaultCenter = LatLng(
+    20.5937,
+    78.9629,
+  ); // centre of India
+  static const double _defaultZoom = 5;
+  static const double _locatedZoom = 14;
+
+  // ───────────────────────────────────────────────────────────────────────────
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserLocation();
+  }
+
+  /// Requests GPS permission and fetches device position.
+  Future<void> _fetchUserLocation() async {
+    setState(() {
+      _locationLoading = true;
+      _locationError = null;
+    });
+
+    try {
+      // 1. Location services enabled?
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() {
+          _locationError = 'Please turn on GPS in your phone settings.';
+          _locationLoading = false;
+        });
+        return;
+      }
+
+      // 2. Permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() {
+            _locationError =
+                'Location permission denied. Allow it in app settings.';
+            _locationLoading = false;
+          });
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _locationError = 'Location permanently denied. Open app settings.';
+          _locationLoading = false;
+        });
+        return;
+      }
+
+      // 3. Get position
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+
+      final userLatLng = LatLng(position.latitude, position.longitude);
+
+      setState(() {
+        _userPosition = userLatLng;
+        _locationLoading = false;
+        _locationError = null;
+      });
+
+      // Move map to user's real location (only on first successful fetch)
+      if (!_hasCenteredOnUser) {
+        _hasCenteredOnUser = true;
+        // Small delay lets the map finish its first render before we move it
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (mounted) {
+          _mapController.move(userLatLng, _locatedZoom);
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _locationError = 'Could not get location. Tap 📍 to retry.';
+        _locationLoading = false;
+      });
+    }
+  }
+
+  /// Moves the camera back to the user's current position.
+  void _centreOnUser() {
+    if (_userPosition != null) {
+      _mapController.move(_userPosition!, _locatedZoom);
+    } else {
+      _fetchUserLocation();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
@@ -28,7 +130,7 @@ class _MapScreenState extends State<MapScreen> {
           child: SafeArea(
             child: Column(
               children: [
-                // Header
+                // ── Header ──────────────────────────────────────────────────
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(
@@ -85,7 +187,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
 
-                // Map
+                // ── Map ─────────────────────────────────────────────────────
                 Expanded(
                   child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(
@@ -96,8 +198,11 @@ class _MapScreenState extends State<MapScreen> {
                         FlutterMap(
                           mapController: _mapController,
                           options: MapOptions(
-                            initialCenter: const LatLng(19.0760, 72.8777),
-                            initialZoom: 13,
+                            // Start at India centre; _fetchUserLocation() will
+                            // move the camera to the real device position once
+                            // GPS resolves.
+                            initialCenter: _defaultCenter,
+                            initialZoom: _defaultZoom,
                             onTap: (_, __) {
                               setState(() => _selectedMarker = null);
                             },
@@ -109,7 +214,7 @@ class _MapScreenState extends State<MapScreen> {
                               userAgentPackageName: 'com.crowdsense.ai',
                             ),
 
-                            // Heatmap circles
+                            // ── Heatmap circles ─────────────────────────────
                             CircleLayer(
                               circles: crowdData.map((data) {
                                 final color = _getHeatColor(data.crowdDensity);
@@ -123,53 +228,181 @@ class _MapScreenState extends State<MapScreen> {
                               }).toList(),
                             ),
 
-                            // Marker pins
+                            // ── Location pins ───────────────────────────────
                             MarkerLayer(
-                              markers: crowdData.map((data) {
-                                return Marker(
-                                  point: LatLng(data.latitude, data.longitude),
-                                  width: 44,
-                                  height: 44,
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      setState(() => _selectedMarker = data);
-                                    },
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: _getHeatColor(data.crowdDensity),
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: Colors.white,
-                                          width: 2,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: _getHeatColor(
-                                              data.crowdDensity,
-                                            ).withValues(alpha: 0.5),
-                                            blurRadius: 10,
+                              markers: [
+                                // Crowd-density markers
+                                ...crowdData.map((data) {
+                                  return Marker(
+                                    point: LatLng(
+                                      data.latitude,
+                                      data.longitude,
+                                    ),
+                                    width: 44,
+                                    height: 44,
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        setState(() => _selectedMarker = data);
+                                      },
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: _getHeatColor(
+                                            data.crowdDensity,
                                           ),
-                                        ],
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          '${data.crowdDensity.toStringAsFixed(0)}',
-                                          style: const TextStyle(
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
                                             color: Colors.white,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
+                                            width: 2,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: _getHeatColor(
+                                                data.crowdDensity,
+                                              ).withValues(alpha: 0.5),
+                                              blurRadius: 10,
+                                            ),
+                                          ],
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            '${data.crowdDensity.toStringAsFixed(0)}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
+                                  );
+                                }),
+
+                                // ── Blue "you are here" marker ───────────────
+                                if (_userPosition != null)
+                                  Marker(
+                                    point: _userPosition!,
+                                    width: 56,
+                                    height: 56,
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        // Pulsing outer ring
+                                        Container(
+                                          width: 56,
+                                          height: 56,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: Colors.blue.withValues(
+                                              alpha: 0.15,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.blue.withValues(
+                                                alpha: 0.4,
+                                              ),
+                                              width: 2,
+                                            ),
+                                          ),
+                                        ),
+                                        // Inner dot
+                                        Container(
+                                          width: 18,
+                                          height: 18,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: Colors.blue,
+                                            border: Border.all(
+                                              color: Colors.white,
+                                              width: 2.5,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.blue.withValues(
+                                                  alpha: 0.6,
+                                                ),
+                                                blurRadius: 8,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                );
-                              }).toList(),
+                              ],
                             ),
                           ],
                         ),
 
-                        // Selected marker info
+                        // ── GPS error banner ─────────────────────────────────
+                        if (_locationError != null)
+                          Positioned(
+                            top: 12,
+                            left: 16,
+                            right: 16,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade900.withValues(
+                                  alpha: 0.92,
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.location_off,
+                                    color: Colors.orange,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _locationError!,
+                                      style: const TextStyle(
+                                        color: Colors.orange,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                        // ── FAB: locate me ───────────────────────────────────
+                        Positioned(
+                          bottom: _selectedMarker != null ? 160 : 24,
+                          right: 16,
+                          child: FloatingActionButton.small(
+                            heroTag: 'locate_me',
+                            backgroundColor: AppColors.surfaceDark,
+                            onPressed: _locationLoading ? null : _centreOnUser,
+                            tooltip: 'Centre on my location',
+                            child: _locationLoading
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.blue,
+                                    ),
+                                  )
+                                : Icon(
+                                    _userPosition != null
+                                        ? Icons.my_location
+                                        : Icons.location_searching,
+                                    color: _userPosition != null
+                                        ? Colors.blue
+                                        : AppColors.textMuted,
+                                    size: 20,
+                                  ),
+                          ),
+                        ),
+
+                        // ── Selected marker info card ────────────────────────
                         if (_selectedMarker != null)
                           Positioned(
                             bottom: 16,
@@ -196,6 +429,8 @@ class _MapScreenState extends State<MapScreen> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _LegendDot extends StatelessWidget {
   final Color color;
   final String label;
@@ -221,6 +456,8 @@ class _LegendDot extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _MarkerInfoCard extends StatelessWidget {
   final CrowdData data;

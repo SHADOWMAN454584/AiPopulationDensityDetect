@@ -28,15 +28,25 @@ class _BestTimeScreenState extends State<BestTimeScreen> {
         toLocationId: _toLocation,
       );
       if (apiResult != null) {
+        final bestHourRaw = apiResult['best_hour'];
+        final fallbackHour = bestHourRaw is num
+            ? bestHourRaw.toInt()
+            : int.tryParse(bestHourRaw?.toString() ?? '');
+        final bestTime =
+            (apiResult['best_time'] as String?) ??
+            (fallbackHour != null
+                ? '${fallbackHour.toString().padLeft(2, '0')}:00'
+                : '');
+
         // Convert API response to match expected format
         setState(() {
           _result = {
-            'best_time':
-                apiResult['best_time'] ?? '${apiResult['best_hour']}:00',
-            'expected_density': (apiResult['expected_density'] as num)
-                .toDouble(),
-            'status': apiResult['status'],
-            'all_predictions': apiResult['hourly_predictions'] ?? [],
+            'best_time': bestTime,
+            'expected_density': _toDouble(apiResult['expected_density']),
+            'status': (apiResult['status'] ?? 'low').toString(),
+            'all_predictions': _normalizePredictions(
+              apiResult['hourly_predictions'],
+            ),
           };
           _isLoading = false;
         });
@@ -214,7 +224,7 @@ class _BestTimeScreenState extends State<BestTimeScreen> {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            'Expected Crowd: ${(_result!['expected_density'] as double).toStringAsFixed(0)}% (Low)',
+                            'Expected Crowd: ${_toDouble(_result!['expected_density']).toStringAsFixed(0)}% (${(_result!['status'] ?? 'low').toString().toUpperCase()})',
                             style: const TextStyle(
                               color: AppColors.crowdLow,
                               fontSize: 13,
@@ -245,7 +255,7 @@ class _BestTimeScreenState extends State<BestTimeScreen> {
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: _buildForecastChart(
-                      _result!['all_predictions'] as List<Map<String, dynamic>>,
+                      _normalizePredictions(_result!['all_predictions']),
                     ),
                   ),
                 ],
@@ -314,7 +324,7 @@ class _BestTimeScreenState extends State<BestTimeScreen> {
                 final idx = value.toInt();
                 if (idx >= 0 && idx < predictions.length) {
                   return Text(
-                    predictions[idx]['label'],
+                    (predictions[idx]['label'] ?? '').toString(),
                     style: const TextStyle(
                       color: AppColors.textMuted,
                       fontSize: 9,
@@ -358,7 +368,7 @@ class _BestTimeScreenState extends State<BestTimeScreen> {
         lineBarsData: [
           LineChartBarData(
             spots: predictions.asMap().entries.map((e) {
-              return FlSpot(e.key.toDouble(), e.value['density'] as double);
+              return FlSpot(e.key.toDouble(), _toDouble(e.value['density']));
             }).toList(),
             isCurved: true,
             gradient: const LinearGradient(
@@ -381,5 +391,37 @@ class _BestTimeScreenState extends State<BestTimeScreen> {
         ],
       ),
     );
+  }
+
+  List<Map<String, dynamic>> _normalizePredictions(dynamic rawPredictions) {
+    if (rawPredictions is! List) {
+      return <Map<String, dynamic>>[];
+    }
+
+    return rawPredictions.whereType<Map>().map((item) {
+      final map = Map<String, dynamic>.from(item);
+      final rawHour = map['hour'];
+      final hourValue = rawHour is num
+          ? rawHour.toInt()
+          : int.tryParse(rawHour?.toString() ?? '');
+      final label =
+          (map['label'] as String?) ??
+          (hourValue != null
+              ? '${hourValue.toString().padLeft(2, '0')}:00'
+              : '');
+      final density = _toDouble(map['density'] ?? map['predicted_density']);
+
+      return {...map, 'hour': hourValue, 'label': label, 'density': density};
+    }).toList();
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
   }
 }

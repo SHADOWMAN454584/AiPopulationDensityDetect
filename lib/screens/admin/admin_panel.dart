@@ -43,17 +43,13 @@ class _AdminPanelState extends State<AdminPanel> {
   }
 
   Future<void> _loadTrainingStatus() async {
-    final statusResult = await ApiService.getRealtimeTrainingStatus();
-    if (statusResult == null || !mounted) return;
-
-    final training = statusResult['training'];
-    if (training is! Map) return;
-    final trainingMap = Map<String, dynamic>.from(training);
+    final trainingStatus = await ApiService.getRealtimeTrainingStatus();
+    if (trainingStatus == null || !mounted) return;
 
     setState(() {
-      _trainingStatus = (trainingMap['status'] ?? 'idle').toString();
-      _trainingError = trainingMap['last_error']?.toString();
-      final rows = trainingMap['last_rows_used'];
+      _trainingStatus = (trainingStatus['status'] ?? 'idle').toString();
+      _trainingError = trainingStatus['last_error']?.toString();
+      final rows = trainingStatus['last_rows_used'];
       _lastRowsUsed = rows is num ? rows.toInt() : null;
     });
 
@@ -113,7 +109,10 @@ class _AdminPanelState extends State<AdminPanel> {
       return;
     }
 
-    final statusCode = result['status_code'];
+    final rawStatusCode = result['status_code'];
+    final statusCode = rawStatusCode is num
+        ? rawStatusCode.toInt()
+        : int.tryParse(rawStatusCode?.toString() ?? '') ?? 500;
     if (statusCode == 200) {
       _showSnack('Training started');
       _trainingStatus = 'running';
@@ -245,9 +244,9 @@ class _AdminPanelState extends State<AdminPanel> {
                     color: AppColors.cardDark,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: _statusColor(_trainingStatus).withValues(
-                        alpha: 0.35,
-                      ),
+                      color: _statusColor(
+                        _trainingStatus,
+                      ).withValues(alpha: 0.35),
                     ),
                   ),
                   child: Column(

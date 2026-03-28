@@ -25,6 +25,7 @@ class AppState extends ChangeNotifier {
   bool _isApiConnected = false;
   bool _googleMapsConfigured = false;
   bool _openAiConfigured = false;
+  bool _geminiConfigured = false;
   bool _isUsingRealtimeData = false;
   String _realtimeDataSource = 'none';
   Timer? _autoRefreshTimer;
@@ -45,6 +46,7 @@ class AppState extends ChangeNotifier {
   bool get isApiConnected => _isApiConnected;
   bool get googleMapsConfigured => _googleMapsConfigured;
   bool get openAiConfigured => _openAiConfigured;
+  bool get geminiConfigured => _geminiConfigured;
   bool get isUsingRealtimeData => _isUsingRealtimeData;
   String get realtimeDataSource => _realtimeDataSource;
   String? get aiInsights => _aiInsights;
@@ -70,7 +72,9 @@ class AppState extends ChangeNotifier {
       final health = await ApiService.getHealth();
       if (health != null) {
         _googleMapsConfigured = health['googleMapsConfigured'] ?? false;
-        _openAiConfigured = health['openAiConfigured'] ?? false;
+        _geminiConfigured = health['geminiConfigured'] ?? false;
+        _openAiConfigured =
+            (health['openAiConfigured'] ?? false) || _geminiConfigured;
       }
 
       // Load locations from server
@@ -166,6 +170,7 @@ class AppState extends ChangeNotifier {
     _isApiConnected = false;
     _googleMapsConfigured = false;
     _openAiConfigured = false;
+    _geminiConfigured = false;
     _isUsingRealtimeData = false;
     _realtimeDataSource = 'none';
     _crowdDataList = DummyDataService.generateCurrentCrowdData();
@@ -358,6 +363,5 @@ class AppState extends ChangeNotifier {
 
   void clearTriggeredAlerts() {
     _triggeredAlerts = [];
-    notifyListeners();
   }
 }
