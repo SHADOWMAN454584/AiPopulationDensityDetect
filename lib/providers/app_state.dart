@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/crowd_data.dart';
 import '../models/crowd_alert.dart';
 import '../models/user_model.dart';
+import '../constants/app_constants.dart';
 import '../services/dummy_data_service.dart';
 import '../services/api_service.dart';
 
@@ -51,6 +52,16 @@ class AppState extends ChangeNotifier {
   String get realtimeDataSource => _realtimeDataSource;
   String? get aiInsights => _aiInsights;
   List<Map<String, dynamic>> get serverLocations => _serverLocations;
+
+  /// Returns server-fetched locations when API is connected, else demo locations.
+  List<Map<String, dynamic>> get effectiveLocations {
+    if (_isApiConnected && _serverLocations.isNotEmpty) {
+      return _serverLocations;
+    }
+    return AppConstants.demoLocations
+        .map((loc) => Map<String, dynamic>.from(loc))
+        .toList();
+  }
 
   CrowdData? get selectedLocationData {
     if (_selectedLocationId == null) return null;

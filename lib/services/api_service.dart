@@ -357,6 +357,85 @@ class ApiService {
   }
 
   // ──────────────────────────────────────────────────────────
+  // Place Search (Nominatim Geocoding)
+  // ──────────────────────────────────────────────────────────
+
+  /// Search for places worldwide using Nominatim OpenStreetMap geocoding.
+  /// Returns a list of {display_name, name, lat, lng} maps.
+  static Future<List<Map<String, dynamic>>> searchPlaces(String query) async {
+    if (query.trim().isEmpty) return [];
+
+    try {
+      final uri = Uri.parse('https://nominatim.openstreetmap.org/search').replace(
+        queryParameters: {
+          'q': query,
+          'format': 'json',
+          'limit': '6',
+          'addressdetails': '1',
+        },
+      );
+
+      final response = await http.get(uri, headers: {
+        'User-Agent': 'CrowdSenseAI/1.0 (crowdsense.ai)',
+        'Accept': 'application/json',
+      }).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> results = jsonDecode(response.body);
+        return results.map((item) {
+          return <String, dynamic>{
+            'display_name': item['display_name'] ?? '',
+            'name': item['name'] ?? item['display_name'] ?? '',
+            'lat': double.tryParse(item['lat']?.toString() ?? '') ?? 0.0,
+            'lng': double.tryParse(item['lon']?.toString() ?? '') ?? 0.0,
+            'type': item['type'] ?? '',
+            'class': item['class'] ?? '',
+          };
+        }).toList();
+      }
+    } catch (e) {
+      print('Nominatim search error: $e');
+    }
+    return [];
+  }
+
+  /// Get crowd density estimation for arbitrary coordinates.
+  /// Tries /maps/estimate-crowd/custom first, then falls back to /maps/nearby.
+  static Future<Map<String, dynamic>?> getCrowdDensityForLocation({
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      // Try estimate-crowd with a generic location id
+      final estimateResult = await estimateCrowdFromMaps(
+        locationId: 'custom',
+        latitude: latitude,
+        longitude: longitude,
+      );
+      if (estimateResult != null) {
+        return estimateResult;
+      }
+    } catch (_) {
+      // Fall through to nearby
+    }
+
+    // Fallback: use /maps/nearby to find monitored places near these coords
+    try {
+      final nearbyResult = await getNearbyPlaces(
+        latitude: latitude,
+        longitude: longitude,
+        radius: 2000, // 2km radius
+      );
+      if (nearbyResult != null) {
+        return nearbyResult;
+      }
+    } catch (e) {
+      print('Crowd density fallback error: $e');
+    }
+    return null;
+  }
+
+  // ──────────────────────────────────────────────────────────
   // Utility Methods
   // ──────────────────────────────────────────────────────────
 

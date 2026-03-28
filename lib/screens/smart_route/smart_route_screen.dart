@@ -73,11 +73,42 @@ class _SmartRouteScreenState extends State<SmartRouteScreen> {
     if (!mounted) return;
 
     if (response != null) {
+      final rawLocations = _toMapList(response['nearby_locations']);
+
+      // Normalize each location to ensure distance_km and location_name exist
+      final normalized = rawLocations.map((loc) {
+        final m = Map<String, dynamic>.from(loc);
+
+        // Normalize location_name
+        m['location_name'] ??=
+            m['name'] ?? m['location_name'] ?? m['place_name'] ?? 'Unknown';
+
+        // Normalize distance_km from various possible keys
+        if (m['distance_km'] == null) {
+          if (m['distance'] != null) {
+            final d = m['distance'];
+            // If distance is in meters (>100 likely meters), convert
+            final dValue = (d is num) ? d.toDouble() : double.tryParse(d.toString()) ?? 0;
+            m['distance_km'] = dValue > 100 ? dValue / 1000 : dValue;
+          } else if (m['latitude'] != null && m['longitude'] != null) {
+            // Compute distance from user location
+            m['distance_km'] = LocationService.distanceInKm(
+              fromLatitude: _userLatitude!,
+              fromLongitude: _userLongitude!,
+              toLatitude: (m['latitude'] as num).toDouble(),
+              toLongitude: (m['longitude'] as num).toDouble(),
+            );
+          }
+        }
+
+        return m;
+      }).toList();
+
       setState(() {
         _isLoadingNearbySmartRoute = false;
         _hasLoadedNearbyApi = true;
         _apiRadiusKm = (response['radius_km'] as num?)?.toDouble();
-        _apiNearbyLocations = _toMapList(response['nearby_locations']);
+        _apiNearbyLocations = normalized;
         _apiSuggestions = _toMapList(response['suggestions']);
       });
       return;

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
+import '../../providers/app_state.dart';
 import '../../services/dummy_data_service.dart';
 import '../../services/api_service.dart';
-import '../../constants/app_constants.dart';
 
 class BestTimeScreen extends StatefulWidget {
   const BestTimeScreen({super.key});
@@ -13,19 +14,29 @@ class BestTimeScreen extends StatefulWidget {
 }
 
 class _BestTimeScreenState extends State<BestTimeScreen> {
-  String _fromLocation = 'metro_a';
-  String _toLocation = 'metro_b';
+  String? _fromLocation;
+  String? _toLocation;
   Map<String, dynamic>? _result;
   bool _isLoading = false;
 
+  String _locationId(Map<String, dynamic> loc) {
+    return (loc['location_id'] ?? loc['id'] ?? '').toString();
+  }
+
+  String _locationName(Map<String, dynamic> loc) {
+    return (loc['location_name'] ?? loc['name'] ?? 'Unknown').toString();
+  }
+
   void _findBestTime() async {
+    if (_fromLocation == null || _toLocation == null) return;
+
     setState(() => _isLoading = true);
 
     // Try real API first
     try {
       final apiResult = await ApiService.getBestTravelTime(
-        fromLocationId: _fromLocation,
-        toLocationId: _toLocation,
+        fromLocationId: _fromLocation!,
+        toLocationId: _toLocation!,
       );
       if (apiResult != null) {
         final bestHourRaw = apiResult['best_hour'];
@@ -59,8 +70,8 @@ class _BestTimeScreenState extends State<BestTimeScreen> {
     // Fallback to dummy data
     await Future.delayed(const Duration(milliseconds: 400));
     final result = DummyDataService.findBestTravelTime(
-      _fromLocation,
-      _toLocation,
+      _fromLocation!,
+      _toLocation!,
     );
 
     setState(() {
@@ -71,207 +82,293 @@ class _BestTimeScreenState extends State<BestTimeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: AppTheme.gradientBackground,
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Back + Title
-                Row(
+    return Consumer<AppState>(
+      builder: (context, state, _) {
+        final locations = state.effectiveLocations;
+
+        // Ensure defaults are set based on current locations
+        if (locations.isNotEmpty) {
+          final ids = locations.map(_locationId).toList();
+          if (_fromLocation == null || !ids.contains(_fromLocation)) {
+            _fromLocation = ids.first;
+          }
+          if (_toLocation == null || !ids.contains(_toLocation)) {
+            _toLocation = ids.length > 1 ? ids[1] : ids.first;
+          }
+        }
+
+        return Scaffold(
+          body: Container(
+            decoration: AppTheme.gradientBackground,
+            child: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    IconButton(
-                      icon: const Icon(
-                        Icons.arrow_back_ios,
-                        color: AppColors.textPrimary,
-                        size: 20,
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    const Text(
-                      'Best Time to Travel',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Padding(
-                  padding: EdgeInsets.only(left: 8),
-                  child: Text(
-                    'Find the optimal time with lowest crowd',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // From
-                _buildLocationSelector('From', _fromLocation, (v) {
-                  setState(() => _fromLocation = v);
-                }),
-                const SizedBox(height: 12),
-
-                // Swap Icon
-                Center(
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        final temp = _fromLocation;
-                        _fromLocation = _toLocation;
-                        _toLocation = temp;
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.neonCyan.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.swap_vert,
-                        color: AppColors.neonCyan,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // To
-                _buildLocationSelector('To', _toLocation, (v) {
-                  setState(() => _toLocation = v);
-                }),
-                const SizedBox(height: 24),
-
-                // Find Button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _isLoading ? null : _findBestTime,
-                    icon: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.backgroundDark,
-                            ),
-                          )
-                        : const Icon(Icons.search),
-                    label: Text(_isLoading ? 'Analyzing...' : 'Find Best Time'),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Result
-                if (_result != null) ...[
-                  // Best Time Card
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          AppColors.neonGreen.withValues(alpha: 0.15),
-                          AppColors.neonCyan.withValues(alpha: 0.1),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: AppColors.neonGreen.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Column(
+                    // Back + Title
+                    Row(
                       children: [
-                        const Icon(
-                          Icons.schedule,
-                          color: AppColors.neonGreen,
-                          size: 40,
+                        IconButton(
+                          icon: const Icon(
+                            Icons.arrow_back_ios,
+                            color: AppColors.textPrimary,
+                            size: 20,
+                          ),
+                          onPressed: () => Navigator.pop(context),
                         ),
-                        const SizedBox(height: 12),
                         const Text(
                           'Best Time to Travel',
                           style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _result!['best_time'],
-                          style: const TextStyle(
-                            color: AppColors.neonGreen,
-                            fontSize: 36,
+                            color: AppColors.textPrimary,
+                            fontSize: 22,
                             fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.crowdLow.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            'Expected Crowd: ${_toDouble(_result!['expected_density']).toStringAsFixed(0)}% (${(_result!['status'] ?? 'low').toString().toUpperCase()})',
-                            style: const TextStyle(
-                              color: AppColors.crowdLow,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Find the optimal time with lowest crowd',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: state.isApiConnected
+                                  ? AppColors.neonGreen.withValues(alpha: 0.15)
+                                  : AppColors.crowdMedium.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.circle,
+                                  size: 6,
+                                  color: state.isApiConnected
+                                      ? AppColors.neonGreen
+                                      : AppColors.crowdMedium,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  state.isApiConnected ? 'Live' : 'Demo',
+                                  style: TextStyle(
+                                    color: state.isApiConnected
+                                        ? AppColors.neonGreen
+                                        : AppColors.crowdMedium,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
 
-                  // Hourly Breakdown
-                  const Text(
-                    'Hourly Crowd Forecast',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                    // From
+                    _buildLocationSelector(
+                      'From',
+                      _fromLocation,
+                      locations,
+                      (v) {
+                        setState(() => _fromLocation = v);
+                      },
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    height: 200,
-                    padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
-                    decoration: BoxDecoration(
-                      color: AppColors.cardDark,
-                      borderRadius: BorderRadius.circular(16),
+                    const SizedBox(height: 12),
+
+                    // Swap Icon
+                    Center(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            final temp = _fromLocation;
+                            _fromLocation = _toLocation;
+                            _toLocation = temp;
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.neonCyan.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.swap_vert,
+                            color: AppColors.neonCyan,
+                          ),
+                        ),
+                      ),
                     ),
-                    child: _buildForecastChart(
-                      _normalizePredictions(_result!['all_predictions']),
+                    const SizedBox(height: 12),
+
+                    // To
+                    _buildLocationSelector(
+                      'To',
+                      _toLocation,
+                      locations,
+                      (v) {
+                        setState(() => _toLocation = v);
+                      },
                     ),
-                  ),
-                ],
-              ],
+                    const SizedBox(height: 24),
+
+                    // Find Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _isLoading ? null : _findBestTime,
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.backgroundDark,
+                                ),
+                              )
+                            : const Icon(Icons.search),
+                        label: Text(
+                          _isLoading ? 'Analyzing...' : 'Find Best Time',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Result
+                    if (_result != null) ...[
+                      // Best Time Card
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              AppColors.neonGreen.withValues(alpha: 0.15),
+                              AppColors.neonCyan.withValues(alpha: 0.1),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: AppColors.neonGreen.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.schedule,
+                              color: AppColors.neonGreen,
+                              size: 40,
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Best Time to Travel',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _result!['best_time'],
+                              style: const TextStyle(
+                                color: AppColors.neonGreen,
+                                fontSize: 36,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    AppColors.crowdLow.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                'Expected Crowd: ${_toDouble(_result!['expected_density']).toStringAsFixed(0)}% (${(_result!['status'] ?? 'low').toString().toUpperCase()})',
+                                style: const TextStyle(
+                                  color: AppColors.crowdLow,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Hourly Breakdown
+                      const Text(
+                        'Hourly Crowd Forecast',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        height: 200,
+                        padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.cardDark,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: _buildForecastChart(
+                          _normalizePredictions(_result!['all_predictions']),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _buildLocationSelector(
     String label,
-    String value,
+    String? value,
+    List<Map<String, dynamic>> locations,
     ValueChanged<String> onChanged,
   ) {
+    final items = locations.map((loc) {
+      final id = _locationId(loc);
+      final name = _locationName(loc);
+      return DropdownMenuItem(
+        value: id,
+        child: Text(name),
+      );
+    }).toList();
+
+    // Safeguard: if value not in items, use first
+    final validValue = items.any((item) => item.value == value)
+        ? value
+        : (items.isNotEmpty ? items.first.value : null);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -288,18 +385,11 @@ class _BestTimeScreenState extends State<BestTimeScreen> {
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
-              value: value,
+              value: validValue,
               dropdownColor: AppColors.surfaceDark,
               style: const TextStyle(color: AppColors.textPrimary),
               isExpanded: true,
-              items: AppConstants.demoLocations
-                  .map(
-                    (loc) => DropdownMenuItem(
-                      value: loc['id'] as String,
-                      child: Text(loc['name'] as String),
-                    ),
-                  )
-                  .toList(),
+              items: items,
               onChanged: (v) {
                 if (v != null) onChanged(v);
               },
