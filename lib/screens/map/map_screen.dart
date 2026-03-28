@@ -139,7 +139,7 @@ class _MapScreenState extends State<MapScreen> {
                         'Crowd Heatmap',
                         style: TextStyle(
                           color: AppColors.textPrimary,
-                          fontSize: 22,
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -172,16 +172,16 @@ class _MapScreenState extends State<MapScreen> {
                               color: state.isUsingRealtimeData
                                   ? AppColors.neonCyan
                                   : AppColors.textMuted,
-                              fontSize: 10,
+                              fontSize: 7,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
                       // Legend
                       _LegendDot(color: AppColors.crowdLow, label: 'Low'),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       _LegendDot(color: AppColors.crowdMedium, label: 'Medium'),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       _LegendDot(color: AppColors.crowdHigh, label: 'High'),
                     ],
                   ),
