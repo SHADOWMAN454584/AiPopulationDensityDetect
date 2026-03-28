@@ -45,7 +45,32 @@ class ApiService {
     try {
       final response = await http.get(Uri.parse('$_baseUrl/locations'));
       if (response.statusCode == 200) {
-        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+        final decoded = jsonDecode(response.body);
+        final List<dynamic> list = decoded is List
+            ? decoded
+            : (decoded['locations'] as List<dynamic>? ?? <dynamic>[]);
+
+        return list
+            .whereType<Map>()
+            .map((item) {
+              final map = Map<String, dynamic>.from(item);
+              return <String, dynamic>{
+                ...map,
+                'id': map['id'] ?? map['locationId'] ?? map['location_id'],
+                'name':
+                    map['name'] ??
+                    map['locationName'] ??
+                    map['location_name'] ??
+                    'Unknown',
+                'lat': _toDoubleOrNull(map['lat']) ??
+                    _toDoubleOrNull(map['latitude']) ??
+                    0.0,
+                'lng': _toDoubleOrNull(map['lng']) ??
+                    _toDoubleOrNull(map['longitude']) ??
+                    0.0,
+              };
+            })
+            .toList();
       }
     } catch (e) {
       print('Locations API Error: $e');

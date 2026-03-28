@@ -285,7 +285,7 @@ class _MapScreenState extends State<MapScreen> {
                         'Crowd Heatmap',
                         style: TextStyle(
                           color: AppColors.textPrimary,
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -318,7 +318,7 @@ class _MapScreenState extends State<MapScreen> {
                               color: state.isUsingRealtimeData
                                   ? AppColors.neonCyan
                                   : AppColors.textMuted,
-                              fontSize: 7,
+                              fontSize: 5,
                               fontWeight: FontWeight.w600,
                             ),
                           ),

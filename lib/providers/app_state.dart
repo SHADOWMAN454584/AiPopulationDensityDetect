@@ -197,10 +197,28 @@ class AppState extends ChangeNotifier {
     final status = await ApiService.getRealtimeStatus();
     if (status == null) return;
 
-    final enabled = status['enabled'] == true;
-    _googleMapsConfigured = status['provider'] == 'google_maps';
+    final enabled =
+        status['enabled'] == true ||
+        status['status'] == 'available' ||
+        status['status'] == 'operational';
 
-    if (!enabled || !_googleMapsConfigured) return;
+    final sourcesRaw = status['sources'];
+    if (sourcesRaw is Map) {
+      final sources = Map<String, dynamic>.from(sourcesRaw);
+      _googleMapsConfigured =
+          sources['google_places'] == true ||
+          sources['google_maps'] == true ||
+          status['google_maps_configured'] == true;
+      _geminiConfigured = sources['gemini'] == true || _geminiConfigured;
+    } else {
+      _googleMapsConfigured =
+          status['google_maps_configured'] == true ||
+          status['googleMapsConfigured'] == true ||
+          status['provider'] == 'google_places' ||
+          status['provider'] == 'google_maps';
+    }
+
+    if (!enabled) return;
 
     // Try to collect live data
     Map<String, dynamic>? realtimeResponse =
