@@ -50,27 +50,26 @@ class ApiService {
             ? decoded
             : (decoded['locations'] as List<dynamic>? ?? <dynamic>[]);
 
-        return list
-            .whereType<Map>()
-            .map((item) {
-              final map = Map<String, dynamic>.from(item);
-              return <String, dynamic>{
-                ...map,
-                'id': map['id'] ?? map['locationId'] ?? map['location_id'],
-                'name':
-                    map['name'] ??
-                    map['locationName'] ??
-                    map['location_name'] ??
-                    'Unknown',
-                'lat': _toDoubleOrNull(map['lat']) ??
-                    _toDoubleOrNull(map['latitude']) ??
-                    0.0,
-                'lng': _toDoubleOrNull(map['lng']) ??
-                    _toDoubleOrNull(map['longitude']) ??
-                    0.0,
-              };
-            })
-            .toList();
+        return list.whereType<Map>().map((item) {
+          final map = Map<String, dynamic>.from(item);
+          return <String, dynamic>{
+            ...map,
+            'id': map['id'] ?? map['locationId'] ?? map['location_id'],
+            'name':
+                map['name'] ??
+                map['locationName'] ??
+                map['location_name'] ??
+                'Unknown',
+            'lat':
+                _toDoubleOrNull(map['lat']) ??
+                _toDoubleOrNull(map['latitude']) ??
+                0.0,
+            'lng':
+                _toDoubleOrNull(map['lng']) ??
+                _toDoubleOrNull(map['longitude']) ??
+                0.0,
+          };
+        }).toList();
       }
     } catch (e) {
       print('Locations API Error: $e');

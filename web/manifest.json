@@ -1,11 +1,11 @@
 {
-    "name": "populationdensityapp",
-    "short_name": "populationdensityapp",
+    "name": "CrowdSense AI",
+    "short_name": "CrowdSense",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0D1B2A",
+    "theme_color": "#0D1B2A",
+    "description": "CrowdSense AI - Predict Before You Step Out",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
