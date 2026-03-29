@@ -209,15 +209,6 @@ class ApiService {
   }
 
   /// Get nearby smart-route payload for the Smart Route screen.
-  ///
-  /// The screen expects:
-  /// - radius_km
-  /// - nearby_locations
-  /// - suggestions
-  ///
-  /// Some backends only expose /maps/nearby. In that case, this method
-  /// adapts the payload shape so the UI can still render nearby data and
-  /// gracefully fallback for suggestions.
   static Future<Map<String, dynamic>?> getNearbySmartRoute({
     required double latitude,
     required double longitude,
@@ -378,6 +369,144 @@ class ApiService {
       print('AI Route Advice API Error: $e');
     }
     return null;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // AI Smart Route Planning
+  // ──────────────────────────────────────────────────────────
+
+  /// AI-powered fastest route finder between two places.
+  /// Takes origin and destination as place names or coordinates
+  /// and returns the fastest route with crowd-aware timing.
+  static Future<Map<String, dynamic>?> getAiSmartRoute({
+    required String originName,
+    required double originLat,
+    required double originLng,
+    required String destinationName,
+    required double destLat,
+    required double destLng,
+    String mode = 'driving',
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/ai/smart-route'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'origin': {
+            'name': originName,
+            'lat': originLat,
+            'lng': originLng,
+          },
+          'destination': {
+            'name': destinationName,
+            'lat': destLat,
+            'lng': destLng,
+          },
+          'mode': mode,
+        }),
+      ).timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('AI Smart Route API Error: $e');
+    }
+
+    // Fallback: use directions + AI route advice together
+    return _fallbackSmartRoute(
+      originName: originName,
+      originLat: originLat,
+      originLng: originLng,
+      destinationName: destinationName,
+      destLat: destLat,
+      destLng: destLng,
+      mode: mode,
+    );
+  }
+
+  /// Fallback: combine /maps/directions + /ai/route-advice into a unified result
+  static Future<Map<String, dynamic>?> _fallbackSmartRoute({
+    required String originName,
+    required double originLat,
+    required double originLng,
+    required String destinationName,
+    required double destLat,
+    required double destLng,
+    String mode = 'driving',
+  }) async {
+    try {
+      // Step 1: Get directions
+      final directions = await getDirections(
+        originLat: originLat,
+        originLng: originLng,
+        destLat: destLat,
+        destLng: destLng,
+        mode: mode,
+      );
+
+      // Step 2: Get crowd data along the route
+      final originCrowd = await getCrowdDensityForLocation(
+        latitude: originLat,
+        longitude: originLng,
+      );
+      final destCrowd = await getCrowdDensityForLocation(
+        latitude: destLat,
+        longitude: destLng,
+      );
+
+      // Step 3: Build crowd data for AI advice
+      final crowdData = <Map<String, dynamic>>[];
+      if (originCrowd != null) crowdData.add({'origin': originCrowd});
+      if (destCrowd != null) crowdData.add({'destination': destCrowd});
+
+      // Step 4: Get AI advice
+      final aiAdvice = await getAiRouteAdvice(
+        crowdData: crowdData,
+        origin: originName,
+        destination: destinationName,
+      );
+
+      // Step 5: Combine into unified response
+      return {
+        'source': 'fallback_combined',
+        'origin': {'name': originName, 'lat': originLat, 'lng': originLng},
+        'destination': {
+          'name': destinationName,
+          'lat': destLat,
+          'lng': destLng,
+        },
+        'directions': directions,
+        'origin_crowd': originCrowd,
+        'destination_crowd': destCrowd,
+        'ai_advice': aiAdvice?['advice'] ?? aiAdvice?['summary'],
+        'best_time': aiAdvice?['best_time'],
+        'routes': _extractRoutes(directions),
+        'recommendations': aiAdvice?['recommendations'],
+      };
+    } catch (e) {
+      print('Fallback smart route error: $e');
+    }
+    return null;
+  }
+
+  /// Extract routes list from directions response
+  static List<Map<String, dynamic>> _extractRoutes(
+    Map<String, dynamic>? directions,
+  ) {
+    if (directions == null) return [];
+    final routes = directions['routes'] ?? directions['legs'];
+    if (routes is List) {
+      return routes
+          .whereType<Map>()
+          .map((r) => Map<String, dynamic>.from(r))
+          .toList();
+    }
+    // If the whole response is a single route
+    if (directions['duration'] != null || directions['distance'] != null) {
+      return [directions];
+    }
+    return [];
   }
 
   // ──────────────────────────────────────────────────────────
