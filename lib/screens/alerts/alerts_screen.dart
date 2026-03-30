@@ -1,390 +1,769 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../../theme/app_theme.dart';
-import '../../providers/app_state.dart';
-import '../../models/crowd_alert.dart';
-import '../../constants/app_constants.dart';
 
-class AlertsScreen extends StatefulWidget {
-  const AlertsScreen({super.key});
+class EnquiryScreen extends StatefulWidget {
+  const EnquiryScreen({super.key});
 
   @override
-  State<AlertsScreen> createState() => _AlertsScreenState();
+  State<EnquiryScreen> createState() => _EnquiryScreenState();
 }
 
-class _AlertsScreenState extends State<AlertsScreen> {
+class _EnquiryScreenState extends State<EnquiryScreen>
+    with TickerProviderStateMixin {
+  final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final List<ChatMessage> _messages = [];
+  bool _isLoading = false;
+  bool _inputFocused = false;
+  late AnimationController _typingAnimController;
+
   @override
-  Widget build(BuildContext context) {
-    return Consumer<AppState>(
-      builder: (context, state, _) {
-        return Container(
-          decoration: AppTheme.gradientBackground,
-          child: SafeArea(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Alerts',
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Get notified when crowd drops',
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                      FloatingActionButton.small(
-                        backgroundColor: AppColors.neonGreen,
-                        onPressed: () => _showAddAlertDialog(context, state),
-                        child: const Icon(
-                          Icons.add,
-                          color: AppColors.backgroundDark,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+  void initState() {
+    super.initState();
+    _typingAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
 
-                // Triggered alerts
-                if (state.triggeredAlerts.isNotEmpty) ...[
-                  Container(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.neonGreen.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.neonGreen.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.notifications_active,
-                              color: AppColors.neonGreen,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Active Alerts',
-                              style: TextStyle(
-                                color: AppColors.neonGreen,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                            const Spacer(),
-                            GestureDetector(
-                              onTap: () => state.clearTriggeredAlerts(),
-                              child: const Text(
-                                'Dismiss',
-                                style: TextStyle(
-                                  color: AppColors.textMuted,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        ...state.triggeredAlerts.map(
-                          (a) => Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(
-                              a['message'],
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _scrollController.dispose();
+    _typingAnimController.dispose();
+    super.dispose();
+  }
 
-                const SizedBox(height: 8),
+  Future<void> _sendMessage() async {
+    final message = _messageController.text.trim();
+    if (message.isEmpty) return;
 
-                // Alert list
-                Expanded(
-                  child: state.alerts.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.notifications_none,
-                                color: AppColors.textMuted.withValues(
-                                  alpha: 0.5,
-                                ),
-                                size: 64,
-                              ),
-                              const SizedBox(height: 16),
-                              const Text(
-                                'No alerts set',
-                                style: TextStyle(
-                                  color: AppColors.textMuted,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Tap + to create a crowd alert',
-                                style: TextStyle(
-                                  color: AppColors.textMuted,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: state.alerts.length,
-                          itemBuilder: (context, index) {
-                            final alert = state.alerts[index];
-                            return _AlertCard(
-                              alert: alert,
-                              onToggle: () => state.toggleAlert(alert.id),
-                              onDelete: () => state.removeAlert(alert.id),
-                            );
-                          },
-                        ),
-                ),
-              ],
+    setState(() {
+      _messages.add(
+        ChatMessage(text: message, isUser: true, timestamp: DateTime.now()),
+      );
+      _isLoading = true;
+    });
+
+    _messageController.clear();
+    _scrollToBottom();
+
+    try {
+      // TODO: Replace with your backend endpoint
+      final response = await http.post(
+        Uri.parse('YOUR_BACKEND_ENDPOINT/chat'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'message': message}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _messages.add(
+            ChatMessage(
+              text: data['response'] ?? 'No response',
+              isUser: false,
+              timestamp: DateTime.now(),
             ),
+          );
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _messages.add(
+            ChatMessage(
+              text: 'Error: Unable to get response',
+              isUser: false,
+              timestamp: DateTime.now(),
+            ),
+          );
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _messages.add(
+          ChatMessage(
+            text: 'Error: $e',
+            isUser: false,
+            timestamp: DateTime.now(),
           ),
         );
-      },
-    );
+        _isLoading = false;
+      });
+    }
+
+    _scrollToBottom();
   }
 
-  void _showAddAlertDialog(BuildContext context, AppState state) {
-    String selectedLocation = 'metro_a';
-    double threshold = 30;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.cardDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Create Alert',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Location
-                  const Text(
-                    'Location',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceDark,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: selectedLocation,
-                        dropdownColor: AppColors.surfaceDark,
-                        style: const TextStyle(color: AppColors.textPrimary),
-                        isExpanded: true,
-                        items: AppConstants.demoLocations.map((loc) {
-                          return DropdownMenuItem(
-                            value: loc['id'] as String,
-                            child: Text(loc['name'] as String),
-                          );
-                        }).toList(),
-                        onChanged: (v) {
-                          if (v != null) {
-                            setDialogState(() => selectedLocation = v);
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Threshold
-                  Text(
-                    'Notify when crowd < ${threshold.toStringAsFixed(0)}%',
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Slider(
-                    value: threshold,
-                    min: 10,
-                    max: 80,
-                    divisions: 14,
-                    activeColor: AppColors.neonGreen,
-                    inactiveColor: AppColors.surfaceDark,
-                    label: '${threshold.toStringAsFixed(0)}%',
-                    onChanged: (v) {
-                      setDialogState(() => threshold = v);
-                    },
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        final loc = AppConstants.demoLocations.firstWhere(
-                          (l) => l['id'] == selectedLocation,
-                        );
-                        state.addAlert(
-                          CrowdAlert(
-                            id: 'alert_${DateTime.now().millisecondsSinceEpoch}',
-                            locationId: selectedLocation,
-                            locationName: loc['name'],
-                            threshold: threshold,
-                            createdAt: DateTime.now(),
-                          ),
-                        );
-                        Navigator.pop(context);
-                      },
-                      child: const Text('Create Alert'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            );
-          },
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
         );
-      },
-    );
+      }
+    });
   }
-}
-
-class _AlertCard extends StatelessWidget {
-  final CrowdAlert alert;
-  final VoidCallback onToggle;
-  final VoidCallback onDelete;
-
-  const _AlertCard({
-    required this.alert,
-    required this.onToggle,
-    required this.onDelete,
-  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.cardDark,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: alert.isActive
-              ? AppColors.neonGreen.withValues(alpha: 0.3)
-              : Colors.transparent,
+      decoration: AppTheme.gradientBackground,
+      child: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            _buildDivider(),
+            Expanded(
+              child: _messages.isEmpty
+                  ? _buildEmptyState()
+                  : _buildMessageList(),
+            ),
+            if (_isLoading) _buildTypingIndicator(),
+            _buildInputBar(),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
       child: Row(
         children: [
+          // Icon badge
           Container(
-            width: 42,
-            height: 42,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-              color: alert.isActive
-                  ? AppColors.neonGreen.withValues(alpha: 0.15)
-                  : AppColors.surfaceDark,
-              shape: BoxShape.circle,
+              color: AppColors.neonGreen.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: AppColors.neonGreen.withValues(alpha: 0.3),
+                width: 1,
+              ),
             ),
-            child: Icon(
-              Icons.notifications,
-              color: alert.isActive ? AppColors.neonGreen : AppColors.textMuted,
-              size: 20,
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: AppColors.neonGreen,
+              size: 22,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  alert.locationName,
-                  style: const TextStyle(
+                const Text(
+                  'AI Enquiry',
+                  style: TextStyle(
                     color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  'Notify when < ${alert.threshold.toStringAsFixed(0)}%',
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 12,
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: AppColors.neonGreen,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.neonGreen.withValues(alpha: 0.5),
+                            blurRadius: 4,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Online · Ready to help',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          Switch(
-            value: alert.isActive,
-            onChanged: (_) => onToggle(),
-            activeColor: AppColors.neonGreen,
+          // Message count badge
+          if (_messages.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceDark,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppColors.neonGreen.withValues(alpha: 0.2),
+                  width: 1,
+                ),
+              ),
+              child: Text(
+                '${_messages.length}',
+                style: const TextStyle(
+                  color: AppColors.neonGreen,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDivider() {
+    return Container(
+      height: 1,
+      margin: const EdgeInsets.symmetric(horizontal: 0),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.transparent,
+            AppColors.neonGreen.withValues(alpha: 0.15),
+            AppColors.surfaceDark,
+            AppColors.neonGreen.withValues(alpha: 0.15),
+            Colors.transparent,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Decorative orb
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    AppColors.neonGreen.withValues(alpha: 0.18),
+                    AppColors.neonGreen.withValues(alpha: 0.04),
+                    Colors.transparent,
+                  ],
+                ),
+                border: Border.all(
+                  color: AppColors.neonGreen.withValues(alpha: 0.2),
+                  width: 1,
+                ),
+              ),
+              child: const Icon(
+                Icons.auto_awesome_rounded,
+                color: AppColors.neonGreen,
+                size: 36,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'How can I help you?',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Ask anything about crowd conditions,\nroutes, or real-time updates.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 13,
+                height: 1.6,
+              ),
+            ),
+            const SizedBox(height: 32),
+            // Quick prompts
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                _QuickPromptChip(
+                  label: '🚉 Best time to travel',
+                  onTap: () {
+                    _messageController.text = 'What is the best time to travel?';
+                    setState(() {});
+                  },
+                ),
+                _QuickPromptChip(
+                  label: '📍 Current crowd levels',
+                  onTap: () {
+                    _messageController.text = 'Show current crowd levels';
+                    setState(() {});
+                  },
+                ),
+                _QuickPromptChip(
+                  label: '🗺️ Suggest a route',
+                  onTap: () {
+                    _messageController.text = 'Suggest the least crowded route';
+                    setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageList() {
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      itemCount: _messages.length,
+      itemBuilder: (context, index) {
+        final isFirst = index == 0;
+        final showDateSeparator = isFirst ||
+            _messages[index].timestamp.day !=
+                _messages[index - 1].timestamp.day;
+        return Column(
+          children: [
+            if (showDateSeparator) _buildDateSeparator(_messages[index].timestamp),
+            _ChatBubble(message: _messages[index]),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDateSeparator(DateTime date) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 1,
+              color: AppColors.surfaceDark,
+            ),
           ),
-          GestureDetector(
-            onTap: onDelete,
-            child: const Icon(
-              Icons.delete_outline,
-              color: AppColors.textMuted,
-              size: 20,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              _formatDate(date),
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: AppColors.surfaceDark,
             ),
           ),
         ],
       ),
     );
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    if (date.day == now.day) return 'TODAY';
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  Widget _buildTypingIndicator() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: AppColors.neonGreen.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: AppColors.neonGreen.withValues(alpha: 0.25),
+                width: 1,
+              ),
+            ),
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: AppColors.neonGreen,
+              size: 14,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.cardDark,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(4),
+                topRight: Radius.circular(18),
+                bottomLeft: Radius.circular(18),
+                bottomRight: Radius.circular(18),
+              ),
+              border: Border.all(color: AppColors.surfaceDark, width: 1),
+            ),
+            child: _TypingDots(controller: _typingAnimController),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInputBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      decoration: BoxDecoration(
+        color: AppColors.cardDark.withValues(alpha: 0.6),
+        border: Border(
+          top: BorderSide(
+            color: AppColors.neonGreen.withValues(alpha: _inputFocused ? 0.2 : 0.08),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Focus(
+              onFocusChange: (focused) => setState(() => _inputFocused = focused),
+              child: TextField(
+                controller: _messageController,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Ask anything...',
+                  hintStyle: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 14,
+                  ),
+                  filled: true,
+                  fillColor: AppColors.surfaceDark.withValues(alpha: 0.8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(
+                      color: AppColors.neonGreen.withValues(alpha: 0.15),
+                      width: 1,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(
+                      color: AppColors.surfaceDark,
+                      width: 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(
+                      color: AppColors.neonGreen.withValues(alpha: 0.4),
+                      width: 1.5,
+                    ),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 12,
+                  ),
+                  isDense: true,
+                ),
+                maxLines: 4,
+                minLines: 1,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _sendMessage(),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Send button
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            child: GestureDetector(
+              onTap: _isLoading ? null : _sendMessage,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: _messageController.text.trim().isNotEmpty && !_isLoading
+                      ? AppColors.neonGreen
+                      : AppColors.surfaceDark,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: _messageController.text.trim().isNotEmpty && !_isLoading
+                      ? [
+                          BoxShadow(
+                            color: AppColors.neonGreen.withValues(alpha: 0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ]
+                      : [],
+                ),
+                child: Icon(
+                  Icons.arrow_upward_rounded,
+                  color: _messageController.text.trim().isNotEmpty && !_isLoading
+                      ? AppColors.backgroundDark
+                      : AppColors.textMuted,
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Typing Dots ──────────────────────────────────────────────────────────────
+
+class _TypingDots extends StatelessWidget {
+  final AnimationController controller;
+  const _TypingDots({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (i) {
+        return AnimatedBuilder(
+          animation: controller,
+          builder: (_, __) {
+            final double phase = (controller.value - i * 0.15).clamp(0.0, 1.0);
+            final double opacity = (0.4 + 0.6 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2)).clamp(0.4, 1.0);
+            final double scale = 0.7 + 0.3 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2.5),
+              child: Transform.scale(
+                scale: scale,
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: AppColors.neonGreen.withValues(alpha: opacity),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      }),
+    );
+  }
+}
+
+// ── Quick Prompt Chip ────────────────────────────────────────────────────────
+
+class _QuickPromptChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _QuickPromptChip({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceDark,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: AppColors.neonGreen.withValues(alpha: 0.2),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Data Model ───────────────────────────────────────────────────────────────
+
+class ChatMessage {
+  final String text;
+  final bool isUser;
+  final DateTime timestamp;
+
+  ChatMessage({
+    required this.text,
+    required this.isUser,
+    required this.timestamp,
+  });
+}
+
+// ── Chat Bubble ──────────────────────────────────────────────────────────────
+
+class _ChatBubble extends StatelessWidget {
+  final ChatMessage message;
+
+  const _ChatBubble({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        mainAxisAlignment:
+            message.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!message.isUser) ...[
+            Container(
+              width: 30,
+              height: 30,
+              margin: const EdgeInsets.only(bottom: 2),
+              decoration: BoxDecoration(
+                color: AppColors.neonGreen.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.neonGreen.withValues(alpha: 0.25),
+                  width: 1,
+                ),
+              ),
+              child: const Icon(
+                Icons.auto_awesome_rounded,
+                color: AppColors.neonGreen,
+                size: 14,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Column(
+              crossAxisAlignment: message.isUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 11,
+                  ),
+                  decoration: BoxDecoration(
+                    color: message.isUser
+                        ? AppColors.neonGreen
+                        : AppColors.cardDark,
+                    borderRadius: message.isUser
+                        ? const BorderRadius.only(
+                            topLeft: Radius.circular(18),
+                            topRight: Radius.circular(4),
+                            bottomLeft: Radius.circular(18),
+                            bottomRight: Radius.circular(18),
+                          )
+                        : const BorderRadius.only(
+                            topLeft: Radius.circular(4),
+                            topRight: Radius.circular(18),
+                            bottomLeft: Radius.circular(18),
+                            bottomRight: Radius.circular(18),
+                          ),
+                    border: message.isUser
+                        ? null
+                        : Border.all(color: AppColors.surfaceDark, width: 1),
+                    boxShadow: message.isUser
+                        ? [
+                            BoxShadow(
+                              color: AppColors.neonGreen.withValues(alpha: 0.2),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : [],
+                  ),
+                  child: Text(
+                    message.text,
+                    style: TextStyle(
+                      color: message.isUser
+                          ? AppColors.backgroundDark
+                          : AppColors.textPrimary,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    _formatTime(message.timestamp),
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (message.isUser) ...[
+            const SizedBox(width: 8),
+            Container(
+              width: 30,
+              height: 30,
+              margin: const EdgeInsets.only(bottom: 2),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceDark,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.neonGreen.withValues(alpha: 0.15),
+                  width: 1,
+                ),
+              ),
+              child: const Icon(
+                Icons.person_rounded,
+                color: AppColors.textSecondary,
+                size: 16,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime time) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 }

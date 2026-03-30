@@ -22,7 +22,7 @@ class _MainShellState extends State<MainShell> {
     HomeScreen(),
     MapScreen(),
     AnalyticsScreen(),
-    AlertsScreen(),
+    EnquiryScreen(),
     ProfileScreen(),
   ];
 
@@ -67,8 +67,8 @@ class _MainShellState extends State<MainShell> {
               label: 'Analytics',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.notifications_rounded),
-              label: 'Alerts',
+              icon: Icon(Icons.chat_bubble_outline),
+              label: 'Enquiry',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_rounded),

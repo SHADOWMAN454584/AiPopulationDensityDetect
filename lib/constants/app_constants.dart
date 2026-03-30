@@ -8,11 +8,11 @@ class AppConstants {
   // Render production: 'https://your-app-name.onrender.com'
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://crowd-backend-5lbs.onrender.com',
+    defaultValue: 'https://backend-server-fast-prompt.onrender.com',
   );
 
   // App Info
-  static const String appName = 'CrowdSense AI';
+  static const String appName = 'CrowdPulse AI';
   static const String appTagline = 'Predict Before You Step Out';
   static const double smartRouteRadiusKm = 12.0;
 
