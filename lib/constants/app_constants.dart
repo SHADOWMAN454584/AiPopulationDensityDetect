@@ -8,6 +8,7 @@ class AppConstants {
   // Render production: 'https://your-app-name.onrender.com'
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
+    //defaultValue: 'http://0.0.0.0:8000',
     defaultValue: 'https://backend-server-fast-prompt.onrender.com',
   );
 

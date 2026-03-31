@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../theme/app_theme.dart';
+import '../../constants/app_constants.dart';
 
 class EnquiryScreen extends StatefulWidget {
   const EnquiryScreen({super.key});
@@ -51,11 +52,23 @@ class _EnquiryScreenState extends State<EnquiryScreen>
     _scrollToBottom();
 
     try {
-      // TODO: Replace with your backend endpoint
+      // Build conversation history for context-aware responses
+      final conversationHistory = _messages
+          .where((m) => !m.isUser || m.text != message) // Exclude current message
+          .take(10) // Limit to last 10 messages to avoid payload bloat
+          .map((m) => {
+                'role': m.isUser ? 'user' : 'assistant',
+                'content': m.text,
+              })
+          .toList();
+
       final response = await http.post(
-        Uri.parse('YOUR_BACKEND_ENDPOINT/chat'),
+        Uri.parse('${AppConstants.apiBaseUrl}/api/chatbot'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'message': message}),
+        body: jsonEncode({
+          'message': message,
+          'conversation_history': conversationHistory,
+        }),
       );
 
       if (response.statusCode == 200) {
@@ -71,10 +84,13 @@ class _EnquiryScreenState extends State<EnquiryScreen>
           _isLoading = false;
         });
       } else {
+        // Print detailed error for debugging
+        print('Chatbot error - Status: ${response.statusCode}');
+        print('Response body: ${response.body}');
         setState(() {
           _messages.add(
             ChatMessage(
-              text: 'Error: Unable to get response',
+              text: 'Error ${response.statusCode}: ${response.reasonPhrase ?? 'Unable to get response'}',
               isUser: false,
               timestamp: DateTime.now(),
             ),
@@ -82,11 +98,13 @@ class _EnquiryScreenState extends State<EnquiryScreen>
           _isLoading = false;
         });
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('Chatbot exception: $e');
+      print('Stack trace: $stackTrace');
       setState(() {
         _messages.add(
           ChatMessage(
-            text: 'Error: $e',
+            text: 'Connection error: $e',
             isUser: false,
             timestamp: DateTime.now(),
           ),

@@ -9,7 +9,6 @@ import 'screens/main_shell.dart';
 import 'screens/best_time/best_time_screen.dart';
 import 'screens/smart_route/smart_route_screen.dart';
 import 'screens/admin/admin_panel.dart';
-
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const CrowdSenseApp());
