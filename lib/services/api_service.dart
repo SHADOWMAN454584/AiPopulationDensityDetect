@@ -388,23 +388,25 @@ class ApiService {
     String mode = 'driving',
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/ai/smart-route'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'origin': {
-            'name': originName,
-            'lat': originLat,
-            'lng': originLng,
-          },
-          'destination': {
-            'name': destinationName,
-            'lat': destLat,
-            'lng': destLng,
-          },
-          'mode': mode,
-        }),
-      ).timeout(const Duration(seconds: 20));
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/ai/smart-route'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'origin': {
+                'name': originName,
+                'lat': originLat,
+                'lng': originLng,
+              },
+              'destination': {
+                'name': destinationName,
+                'lat': destLat,
+                'lng': destLng,
+              },
+              'mode': mode,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -757,6 +759,94 @@ class ApiService {
       }
     } catch (e) {
       print('Realtime training-data API Error: $e');
+    }
+    return null;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Chatbot Endpoints (KrishiMithra)
+  // ──────────────────────────────────────────────────────────
+
+  static final String _chatbotBaseUrl = AppConstants.chatbotApiBaseUrl;
+
+  /// GET: API Root - Get API information and available endpoints
+  static Future<Map<String, dynamic>?> getChatbotInfo() async {
+    try {
+      final response = await http.get(Uri.parse(_chatbotBaseUrl));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Chatbot Info API Error: $e');
+    }
+    return null;
+  }
+
+  /// GET: Ping - Simple ping endpoint for monitoring service availability
+  static Future<Map<String, dynamic>?> pingChatbot() async {
+    try {
+      final response = await http.get(Uri.parse('$_chatbotBaseUrl/ping'));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print('Chatbot Ping API Error: $e');
+    }
+    return null;
+  }
+
+  /// POST: Generate Farming Advice - Get farming advice based on text prompt
+  static Future<Map<String, dynamic>?> generateFarmingAdvice({
+    required String prompt,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_chatbotBaseUrl/generate'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'prompt': prompt}),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        print('Generate Advice API Error - Status: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Generate Advice API Error: $e');
+    }
+    return null;
+  }
+
+  /// POST: Analyze Farming Image - Upload an image for AI analysis
+  static Future<Map<String, dynamic>?> analyzeFarmingImage({
+    required String imagePath,
+    String? customPrompt,
+  }) async {
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_chatbotBaseUrl/analyze-image'),
+      );
+
+      // Add image file
+      final file = await http.MultipartFile.fromPath('file', imagePath);
+      request.files.add(file);
+
+      // Add custom prompt if provided
+      if (customPrompt != null && customPrompt.isNotEmpty) {
+        request.fields['prompt'] = customPrompt;
+      }
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        print('Analyze Image API Error - Status: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Analyze Image API Error: $e');
     }
     return null;
   }

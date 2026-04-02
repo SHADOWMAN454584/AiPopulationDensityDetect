@@ -3,13 +3,22 @@ class AppConstants {
   static const String supabaseUrl = 'https://YOUR_PROJECT.supabase.co';
   static const String supabaseAnonKey = 'YOUR_ANON_KEY';
 
-  // FastAPI Backend
+  // FastAPI Backend - Crowd Prediction Service
   // Local development: 'http://localhost:8000'
   // Render production: 'https://your-app-name.onrender.com'
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
     //defaultValue: 'http://0.0.0.0:8000',
     defaultValue: 'https://backend-server-fast-prompt.onrender.com',
+  );
+
+  // Chatbot Backend - KrishiMithra Service (Separate Render Deployment)
+  // Local development: 'http://localhost:8001'
+  // Render production: 'https://krishimitra-chatbot.onrender.com'
+  static const String chatbotApiBaseUrl = String.fromEnvironment(
+    'CHATBOT_API_BASE_URL',
+    //defaultValue: 'http://localhost:8001',
+    defaultValue: 'https://backend-server-fast-prompt-1.onrender.com',
   );
 
   // App Info

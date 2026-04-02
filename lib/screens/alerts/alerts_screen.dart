@@ -52,23 +52,10 @@ class _EnquiryScreenState extends State<EnquiryScreen>
     _scrollToBottom();
 
     try {
-      // Build conversation history for context-aware responses
-      final conversationHistory = _messages
-          .where((m) => !m.isUser || m.text != message) // Exclude current message
-          .take(10) // Limit to last 10 messages to avoid payload bloat
-          .map((m) => {
-                'role': m.isUser ? 'user' : 'assistant',
-                'content': m.text,
-              })
-          .toList();
-
       final response = await http.post(
-        Uri.parse('${AppConstants.apiBaseUrl}/api/chatbot'),
+        Uri.parse('${AppConstants.chatbotApiBaseUrl}/generate'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'message': message,
-          'conversation_history': conversationHistory,
-        }),
+        body: jsonEncode({'prompt': message}),
       );
 
       if (response.statusCode == 200) {
@@ -90,7 +77,8 @@ class _EnquiryScreenState extends State<EnquiryScreen>
         setState(() {
           _messages.add(
             ChatMessage(
-              text: 'Error ${response.statusCode}: ${response.reasonPhrase ?? 'Unable to get response'}',
+              text:
+                  'Error ${response.statusCode}: ${response.reasonPhrase ?? 'Unable to get response'}',
               isUser: false,
               timestamp: DateTime.now(),
             ),
@@ -324,7 +312,8 @@ class _EnquiryScreenState extends State<EnquiryScreen>
                 _QuickPromptChip(
                   label: '🚉 Best time to travel',
                   onTap: () {
-                    _messageController.text = 'What is the best time to travel?';
+                    _messageController.text =
+                        'What is the best time to travel?';
                     setState(() {});
                   },
                 ),
@@ -357,12 +346,14 @@ class _EnquiryScreenState extends State<EnquiryScreen>
       itemCount: _messages.length,
       itemBuilder: (context, index) {
         final isFirst = index == 0;
-        final showDateSeparator = isFirst ||
+        final showDateSeparator =
+            isFirst ||
             _messages[index].timestamp.day !=
                 _messages[index - 1].timestamp.day;
         return Column(
           children: [
-            if (showDateSeparator) _buildDateSeparator(_messages[index].timestamp),
+            if (showDateSeparator)
+              _buildDateSeparator(_messages[index].timestamp),
             _ChatBubble(message: _messages[index]),
           ],
         );
@@ -375,12 +366,7 @@ class _EnquiryScreenState extends State<EnquiryScreen>
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         children: [
-          Expanded(
-            child: Container(
-              height: 1,
-              color: AppColors.surfaceDark,
-            ),
-          ),
+          Expanded(child: Container(height: 1, color: AppColors.surfaceDark)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Text(
@@ -393,12 +379,7 @@ class _EnquiryScreenState extends State<EnquiryScreen>
               ),
             ),
           ),
-          Expanded(
-            child: Container(
-              height: 1,
-              color: AppColors.surfaceDark,
-            ),
-          ),
+          Expanded(child: Container(height: 1, color: AppColors.surfaceDark)),
         ],
       ),
     );
@@ -459,7 +440,9 @@ class _EnquiryScreenState extends State<EnquiryScreen>
         color: AppColors.cardDark.withValues(alpha: 0.6),
         border: Border(
           top: BorderSide(
-            color: AppColors.neonGreen.withValues(alpha: _inputFocused ? 0.2 : 0.08),
+            color: AppColors.neonGreen.withValues(
+              alpha: _inputFocused ? 0.2 : 0.08,
+            ),
             width: 1,
           ),
         ),
@@ -469,7 +452,8 @@ class _EnquiryScreenState extends State<EnquiryScreen>
         children: [
           Expanded(
             child: Focus(
-              onFocusChange: (focused) => setState(() => _inputFocused = focused),
+              onFocusChange: (focused) =>
+                  setState(() => _inputFocused = focused),
               child: TextField(
                 controller: _messageController,
                 style: const TextStyle(
@@ -532,11 +516,13 @@ class _EnquiryScreenState extends State<EnquiryScreen>
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: _messageController.text.trim().isNotEmpty && !_isLoading
+                  color:
+                      _messageController.text.trim().isNotEmpty && !_isLoading
                       ? AppColors.neonGreen
                       : AppColors.surfaceDark,
                   borderRadius: BorderRadius.circular(14),
-                  boxShadow: _messageController.text.trim().isNotEmpty && !_isLoading
+                  boxShadow:
+                      _messageController.text.trim().isNotEmpty && !_isLoading
                       ? [
                           BoxShadow(
                             color: AppColors.neonGreen.withValues(alpha: 0.3),
@@ -548,7 +534,8 @@ class _EnquiryScreenState extends State<EnquiryScreen>
                 ),
                 child: Icon(
                   Icons.arrow_upward_rounded,
-                  color: _messageController.text.trim().isNotEmpty && !_isLoading
+                  color:
+                      _messageController.text.trim().isNotEmpty && !_isLoading
                       ? AppColors.backgroundDark
                       : AppColors.textMuted,
                   size: 20,
@@ -577,8 +564,13 @@ class _TypingDots extends StatelessWidget {
           animation: controller,
           builder: (_, __) {
             final double phase = (controller.value - i * 0.15).clamp(0.0, 1.0);
-            final double opacity = (0.4 + 0.6 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2)).clamp(0.4, 1.0);
-            final double scale = 0.7 + 0.3 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
+            final double opacity =
+                (0.4 + 0.6 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2)).clamp(
+                  0.4,
+                  1.0,
+                );
+            final double scale =
+                0.7 + 0.3 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 2.5),
               child: Transform.scale(
@@ -661,8 +653,9 @@ class _ChatBubble extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
-        mainAxisAlignment:
-            message.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: message.isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!message.isUser) ...[
